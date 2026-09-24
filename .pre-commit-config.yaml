@@ -1,0 +1,36 @@
+# Set up once per clone:  .venv/bin/pip install -r requirements-dev.txt
+#                         .venv/bin/pre-commit install
+# Run on everything:      .venv/bin/pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: run the test suite
+        entry: .venv/bin/python -m pytest -p no:cacheprovider
+        language: system
+        pass_filenames: false
+        types: [python]
+      # data/ holds personal application data; .gitignore already skips it,
+      # this also stops a forced `git add -f`.
+      - id: no-personal-data
+        name: keep data/ out of git
+        entry: files in data/ hold personal application data and must not be committed
+        language: fail
+        files: ^data/

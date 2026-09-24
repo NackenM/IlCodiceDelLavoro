@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 79
+target-version = "py312"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, bugbear, import order, pyupgrade. Ruff's newer
+# default set also flags naive dates (DTZ), which is noise for a local
+# desktop app, so the rules are listed explicitly.
+select = ["E", "F", "W", "B", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

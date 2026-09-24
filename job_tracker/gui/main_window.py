@@ -1,214 +1,128 @@
-"""Main application window: application list + pipeline chart."""
+"""Main window: the application list above a pipeline chart."""
+
 from __future__ import annotations
 
-import signal
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
-from .. import chart, storage
-from . import dates
+from .. import charts
+from ..companies import known_companies
+from ..model import Application
+from ..repository import ApplicationRepository
 from .add_dialog import AddApplicationDialog
+from .application_list import ApplicationList
+from .chart_panel import ChartPanel
 from .edit_dialog import EditApplicationDialog
 from .stats_dialog import StatisticsDialog
+from .stop_signals import close_on_stop_signals, stop_signals_held_back
 from .timeline_dialog import TimelineDialog
 
-LIST_COLUMNS = [
-    ("job_title", "Job Title", 200),
-    ("company", "Company", 140),
-    ("status", "Status", 220),
-    ("salary", "Salary", 110),
-    ("contact_email", "Contact", 190),
-    ("date_applied", "Date Applied", 95),
-    ("last_update", "Last Update", 95),
-]
-DATE_LIST_COLUMNS = {"date_applied", "last_update"}
-STATUS_ORDER = {status: i for i, status in enumerate(storage.STATUS_CHOICES)}
-SIGNAL_CHECK_MS = 200
 CHART_VIEWS = {
-    "Outcome waterfall": chart.build_outcome_waterfall_figure,
-    "Progress by application": chart.build_progress_figure,
+    "Outcome waterfall": charts.build_outcome_waterfall_figure,
+    "Progress by application": charts.build_progress_figure,
 }
+USAGE_HINT = (
+    "Click a column header to sort  ·  Double-click a row to edit  ·  "
+    "⌘-click rows for Timeline"
+)
 
 
 class MainWindow(tk.Tk):
-    def __init__(self):
+    def __init__(self, repository: ApplicationRepository):
         super().__init__()
         self.title("Job Application Tracker")
         self.geometry("1180x760")
         self.minsize(900, 620)
-
-        self.df = None
-        self.canvas = None
-        self.sort_key = None
-        self.sort_descending = False
+        self.repository = repository
+        self.applications: list[Application] = []
 
         self._build_toolbar()
         self._build_body()
         self.refresh()
 
-    def _build_toolbar(self):
-        bar = ttk.Frame(self)
-        bar.pack(fill="x", padx=8, pady=6)
-        ttk.Button(bar, text="+ Add Application", command=self._open_add_dialog).pack(side="left")
-        ttk.Button(bar, text="Refresh", command=self.refresh).pack(side="left", padx=(6, 0))
-        ttk.Button(bar, text="Statistics", command=self._open_stats_dialog).pack(side="left", padx=(6, 0))
-        ttk.Button(bar, text="Timeline", command=self._open_timeline_dialog).pack(side="left", padx=(6, 0))
-        ttk.Label(bar, text="Chart").pack(side="left", padx=(18, 6))
-        self.chart_view_var = tk.StringVar(value=next(iter(CHART_VIEWS)))
-        view_combo = ttk.Combobox(
-            bar, textvariable=self.chart_view_var, values=list(CHART_VIEWS), state="readonly", width=22
+    def _build_toolbar(self) -> None:
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill="x", padx=8, pady=6)
+        buttons = [
+            ("+ Add Application", self._open_add_dialog),
+            ("Refresh", self.refresh),
+            ("Statistics", self._open_statistics),
+            ("Timeline", self._open_timeline),
+        ]
+        for index, (text, command) in enumerate(buttons):
+            ttk.Button(toolbar, text=text, command=command).pack(
+                side="left", padx=(6 if index else 0, 0)
+            )
+
+        ttk.Label(toolbar, text="Chart").pack(side="left", padx=(18, 6))
+        self.chart_view = tk.StringVar(value=next(iter(CHART_VIEWS)))
+        chart_choice = ttk.Combobox(
+            toolbar,
+            textvariable=self.chart_view,
+            values=list(CHART_VIEWS),
+            state="readonly",
+            width=22,
         )
-        view_combo.pack(side="left")
-        view_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_chart())
-        ttk.Label(bar, text="Click a column header to sort  ·  Double-click a row to edit  ·  "
-                  "\u2318-click rows for Timeline").pack(side="right")
+        chart_choice.pack(side="left")
+        chart_choice.bind(
+            "<<ComboboxSelected>>", lambda _event: self._show_chart()
+        )
+        ttk.Label(toolbar, text=USAGE_HINT).pack(side="right")
 
-    def _build_body(self):
-        paned = ttk.Panedwindow(self, orient="vertical")
-        paned.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+    def _build_body(self) -> None:
+        panes = ttk.Panedwindow(self, orient="vertical")
+        panes.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.application_list = ApplicationList(
+            panes, on_open=self._open_edit_dialog
+        )
+        panes.add(self.application_list, weight=2)
+        self.chart_panel = ChartPanel(panes)
+        panes.add(self.chart_panel, weight=3)
 
-        list_frame = ttk.Frame(paned)
-        columns = [c[0] for c in LIST_COLUMNS]
-        self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode="extended")
-        for key, heading, width in LIST_COLUMNS:
-            self.tree.heading(key, text=heading, command=lambda k=key: self._sort_by(k))
-            self.tree.column(key, width=width, anchor="w")
-        vsb = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
-        self.tree.bind("<Double-1>", self._on_row_double_click)
-        paned.add(list_frame, weight=2)
+    def refresh(self) -> None:
+        self.applications = self.repository.load_all()
+        self.application_list.show(self.applications)
+        self._show_chart()
 
-        chart_frame = ttk.Frame(paned)
-        self.chart_container = chart_frame
-        paned.add(chart_frame, weight=3)
+    def _show_chart(self) -> None:
+        build_figure = CHART_VIEWS[self.chart_view.get()]
+        self.chart_panel.show(build_figure(self.applications))
 
-    def refresh(self):
-        self.df = storage.load_applications()
-        self._refresh_tree()
-        self._refresh_chart()
+    def _open_add_dialog(self) -> None:
+        AddApplicationDialog(
+            self,
+            self.repository,
+            known_companies(self.applications),
+            on_saved=self.refresh,
+        )
 
-    def _sort_by(self, key):
-        if self.sort_key == key:
-            self.sort_descending = not self.sort_descending
-        else:
-            self.sort_key, self.sort_descending = key, False
-        self._refresh_tree()
+    def _open_edit_dialog(self, application: Application) -> None:
+        EditApplicationDialog(
+            self,
+            self.repository,
+            application,
+            known_companies(self.applications),
+            on_changed=self.refresh,
+        )
 
-    def _sorted_rows(self):
-        rows = [row for _, row in self.df.iterrows()]
-        if self.sort_key is None:
-            return rows
-        key = self.sort_key
-        # Blank cells always go last, whichever direction is chosen.
-        filled = [r for r in rows if r[key]]
-        blank = [r for r in rows if not r[key]]
-        if key == "status":
-            sort_value = lambda r: STATUS_ORDER.get(r[key], len(STATUS_ORDER))  # pipeline order
-        elif key == "salary":
-            # By amount; salaries without a number ("negotiable") go last too.
-            blank = [r for r in filled if storage.salary_amount(r[key]) is None] + blank
-            filled = [r for r in filled if storage.salary_amount(r[key]) is not None]
-            sort_value = lambda r: storage.salary_amount(r[key])
-        else:
-            # Dates are stored as ISO, so plain string order is chronological.
-            sort_value = lambda r: r[key].casefold()
-        filled.sort(key=sort_value, reverse=self.sort_descending)
-        return filled + blank
+    def _open_statistics(self) -> None:
+        StatisticsDialog(self, self.applications)
 
-    @staticmethod
-    def _cell_text(row, key: str) -> str:
-        if key in DATE_LIST_COLUMNS:
-            return dates.to_display(row[key])
-        if key == "status":
-            return storage.status_label(row)
-        return row[key]
-
-    def _refresh_tree(self):
-        for key, heading, _ in LIST_COLUMNS:
-            arrow = ""
-            if key == self.sort_key:
-                arrow = " \u25bc" if self.sort_descending else " \u25b2"
-            self.tree.heading(key, text=heading + arrow)
-
-        self.tree.delete(*self.tree.get_children())
-        for row in self._sorted_rows():
-            values = [self._cell_text(row, key) for key, _, _ in LIST_COLUMNS]
-            self.tree.insert("", "end", iid=row["id"], values=values)
-
-    def _refresh_chart(self):
-        if self.canvas is not None:
-            self.canvas.get_tk_widget().destroy()
-        figure = CHART_VIEWS[self.chart_view_var.get()](self.df)
-        self.canvas = FigureCanvasTkAgg(figure, master=self.chart_container)
-        self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
-
-    def _open_stats_dialog(self):
-        StatisticsDialog(self, self.df)
-
-    def _open_timeline_dialog(self):
-        selected = list(self.tree.selection())
+    def _open_timeline(self) -> None:
+        selected = self.application_list.selected()
         if not selected:
             messagebox.showinfo(
                 "Timeline",
                 "Select one or more applications in the list first "
-                "(\u2318- or Shift-click to select several).",
+                "(⌘- or Shift-click to select several).",
                 parent=self,
             )
             return
-        # Keep the list's current order, so the timeline reads like the list.
-        by_id = self.df.set_index("id", drop=False)
-        TimelineDialog(self, by_id.loc[selected].reset_index(drop=True))
-
-    def _open_add_dialog(self):
-        AddApplicationDialog(self, on_saved=self.refresh)
-
-    def _on_row_double_click(self, event):
-        # The row under the cursor: with several rows selected, the
-        # selection alone doesn't say which one was double-clicked.
-        app_id = self.tree.identify_row(event.y)
-        if not app_id:
-            return
-        row = self.df[self.df["id"] == app_id]
-        if row.empty:
-            return
-        EditApplicationDialog(self, row.iloc[0].to_dict(), on_saved=self.refresh, on_deleted=self.refresh)
+        TimelineDialog(self, selected)
 
 
-STOP_SIGNALS = {getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT")
-                if hasattr(signal, name)}
-
-
-def _close_on_signals(app: tk.Tk) -> None:
-    """Close the window cleanly on Ctrl+C / kill (e.g. PyCharm's Stop or Rerun).
-
-    On macOS, Tk 9 installs a C signal handler that tears Tcl down from inside
-    the handler; the resulting <Destroy> callbacks re-enter Python without the
-    GIL and abort the interpreter. Re-registering Python handlers after Tk is
-    created replaces it, so the shutdown runs on the main thread instead.
-    """
-    for sig in STOP_SIGNALS:
-        signal.signal(sig, lambda *_: app.destroy())
-
-    # mainloop only checks for pending Python signals between Tk events, so
-    # keep a steady trickle of events coming while the app sits idle.
-    def heartbeat():
-        app.after(SIGNAL_CHECK_MS, heartbeat)
-
-    heartbeat()
-
-
-def main():
-    storage.ensure_csv()
-    # Hold stop signals back while the window is built: until our handlers
-    # replace Tk's, a signal would hit Tk's handler mid-startup. A signal that
-    # arrives meanwhile stays pending and is handled once they are unblocked.
-    signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
-    app = MainWindow()
-    _close_on_signals(app)
-    signal.pthread_sigmask(signal.SIG_UNBLOCK, STOP_SIGNALS)
-    app.mainloop()
+def main() -> None:
+    with stop_signals_held_back():
+        window = MainWindow(ApplicationRepository())
+        close_on_stop_signals(window)
+    window.mainloop()

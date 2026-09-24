@@ -1,191 +1,281 @@
-"""Pop-up window for updating an existing job application."""
+"""Dialog for updating or deleting an existing application."""
+
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from datetime import date
 from tkinter import messagebox, ttk
 
-from .. import storage
-from . import dates
-from .add_dialog import SALARY_HINT
+from ..dates import (
+    DISPLAY_HINT,
+    format_display_date,
+    is_valid_display_date,
+    parse_display_date,
+)
+from ..emails import InvalidEmailError, normalize_email_list
+from ..model import Application, RoundTags
+from ..repository import ApplicationRepository
+from ..stages import (
+    DEFAULT_ROUND_FORMAT,
+    INTERVIEW_ROUNDS,
+    RoundFocus,
+    RoundFormat,
+    Stage,
+)
 from .company_field import CompanyCombobox
+from .form_widgets import HINT_COLOR, LabeledForm, ScrolledText
+from .today_shortcut import TODAY_TOKEN, enable_today_shortcut, today_display
+
+
+@dataclass
+class RoundTagFields:
+    """The Format / Focus dropdowns of one interview round."""
+
+    format: tk.StringVar
+    focus: tk.StringVar
+
+    def tags(self) -> RoundTags:
+        return RoundTags(
+            format=RoundFormat(self.format.get()),
+            focus=RoundFocus(self.focus.get()) if self.focus.get() else None,
+        )
 
 
 class EditApplicationDialog(tk.Toplevel):
-    def __init__(self, parent, app_row: dict, on_saved, on_deleted):
+    def __init__(
+        self,
+        parent: tk.Misc,
+        repository: ApplicationRepository,
+        application: Application,
+        known_companies: list[str],
+        on_changed: Callable[[], None],
+    ):
         super().__init__(parent)
-        self.app_id = app_row["id"]
-        self.on_saved = on_saved
-        self.on_deleted = on_deleted
-        self.title(f"Edit Application -- {app_row.get('job_title', '')}")
+        self.title(f"Edit Application -- {application.job_title}")
         self.geometry("760x860")
         self.minsize(560, 560)
         self.transient(parent)
         self.grab_set()
+        self.repository = repository
+        self.application = application
+        self.on_changed = on_changed
 
-        self._build_form(app_row)
-
-    def _build_form(self, row: dict):
-        form = ttk.Frame(self)
-        form.pack(fill="x", padx=10, pady=(10, 0))
-        form.columnconfigure(1, weight=1)
-
-        ttk.Label(form, text="Job title").grid(row=0, column=0, sticky="w", pady=4)
-        self.title_var = tk.StringVar(value=row.get("job_title", ""))
-        ttk.Entry(form, textvariable=self.title_var).grid(row=0, column=1, sticky="ew", pady=4)
-
-        ttk.Label(form, text="Company").grid(row=1, column=0, sticky="w", pady=4)
-        self.company_var = tk.StringVar(value=row.get("company", ""))
-        CompanyCombobox(form, textvariable=self.company_var).grid(row=1, column=1, sticky="ew", pady=4)
-
-        ttk.Label(form, text="Contact email(s)").grid(row=2, column=0, sticky="w", pady=4)
-        self.contact_var = tk.StringVar(value=row.get("contact_email", ""))
-        ttk.Entry(form, textvariable=self.contact_var).grid(row=2, column=1, sticky="ew", pady=4)
-
-        ttk.Label(form, text="URL").grid(row=3, column=0, sticky="w", pady=4)
-        self.url_var = tk.StringVar(value=row.get("url", ""))
-        ttk.Entry(form, textvariable=self.url_var).grid(row=3, column=1, sticky="ew", pady=4)
-
-        ttk.Label(form, text="Salary").grid(row=4, column=0, sticky="w", pady=4)
-        salary_row = ttk.Frame(form)
-        salary_row.grid(row=4, column=1, sticky="ew", pady=4)
-        self.salary_var = tk.StringVar(value=row.get("salary", ""))
-        ttk.Entry(salary_row, textvariable=self.salary_var, width=24).pack(side="left")
-        ttk.Label(salary_row, text=SALARY_HINT).pack(side="left", padx=(6, 0))
-
-        ttk.Label(form, text="Current status").grid(row=5, column=0, sticky="w", pady=4)
-        self.status_var = tk.StringVar(value=row.get("status", storage.STATUS_APPLIED))
-        status_combo = ttk.Combobox(
-            form, textvariable=self.status_var, values=storage.STATUS_CHOICES, state="readonly"
-        )
-        status_combo.grid(row=5, column=1, sticky="ew", pady=4)
-
-        ttk.Label(form, text="Last update").grid(row=6, column=0, sticky="w", pady=4)
-        last_update = dates.to_display(row.get("last_update", "")) or "--"
-        ttk.Label(form, text=f"{last_update}  (set automatically on save)").grid(
-            row=6, column=1, sticky="w", pady=4
-        )
-
+        self._build_details(known_companies)
         ttk.Separator(self).pack(fill="x", padx=10, pady=8)
+        self._build_stage_dates()
+        ttk.Separator(self).pack(fill="x", padx=10, pady=8)
+        self._build_description_and_notes()
+        self._build_buttons()
 
+    def _build_details(self, known_companies: list[str]) -> None:
+        application = self.application
+        form = LabeledForm(self)
+        form.pack(fill="x", padx=10, pady=(10, 0))
+        self.job_title = tk.StringVar(value=application.job_title)
+        form.add_entry("Job title", self.job_title)
+        self.company = tk.StringVar(value=application.company)
+        form.add_row(
+            "Company", CompanyCombobox(form, self.company, known_companies)
+        )
+        self.contact_email = tk.StringVar(value=application.contact_email)
+        form.add_entry("Contact email(s)", self.contact_email)
+        self.url = tk.StringVar(value=application.url)
+        form.add_entry("URL", self.url)
+        self.salary = tk.StringVar(value=application.salary)
+        form.add_salary(self.salary)
+
+        self.status = tk.StringVar(value=application.status)
+        form.add_row(
+            "Current status",
+            ttk.Combobox(
+                form,
+                textvariable=self.status,
+                values=[stage.value for stage in Stage],
+                state="readonly",
+            ),
+        )
+        last_update = format_display_date(application.last_update) or "--"
+        form.add_row(
+            "Last update",
+            ttk.Label(
+                form, text=f"{last_update}  (set automatically on save)"
+            ),
+            stretch=False,
+        )
+
+    def _build_stage_dates(self) -> None:
         ttk.Label(
             self,
-            text=f"Stage dates  ({dates.DISPLAY_HINT}, type {dates.TODAY_TOKEN} for today, "
-            "leave blank if not reached)",
+            text=f"Stage dates  ({DISPLAY_HINT}, type {TODAY_TOKEN} for "
+            "today, leave blank if not reached)",
         ).pack(anchor="w", padx=10)
-        dates_frame = ttk.Frame(self)
-        dates_frame.pack(fill="x", padx=10, pady=(4, 0))
+        grid = ttk.Frame(self)
+        grid.pack(fill="x", padx=10, pady=(4, 0))
 
-        self.date_vars: dict[str, tk.StringVar] = {}
-        self.tag_vars: dict[str, tk.StringVar] = {}  # round format/focus column -> value
-        for r, status in enumerate(storage.STATUS_CHOICES):
-            col_field = storage.STATUS_DATE_COLUMNS[status]
-            var = tk.StringVar(value=dates.to_display(row.get(col_field, "")))
-            self.date_vars[status] = var
-            label = f"{status} (optional)" if status == storage.STATUS_CODING_CHALLENGE else status
-            ttk.Label(dates_frame, text=label).grid(row=r, column=0, sticky="w", pady=3)
-            entry = ttk.Entry(dates_frame, textvariable=var, width=12)
-            entry.grid(row=r, column=1, padx=(8, 0), pady=3)
-            dates.enable_today_shortcut(entry)
+        self.stage_dates: dict[Stage, tk.StringVar] = {}
+        self.round_tag_fields: dict[Stage, RoundTagFields] = {}
+        for row, stage in enumerate(Stage):
+            date_text = tk.StringVar(
+                value=format_display_date(
+                    self.application.stage_dates.get(stage)
+                )
+            )
+            self.stage_dates[stage] = date_text
+            label = (
+                f"{stage} (optional)"
+                if stage is Stage.CODING_CHALLENGE
+                else stage.value
+            )
+            ttk.Label(grid, text=label).grid(
+                row=row, column=0, sticky="w", pady=3
+            )
+            entry = ttk.Entry(grid, textvariable=date_text, width=12)
+            entry.grid(row=row, column=1, padx=(8, 0), pady=3)
+            enable_today_shortcut(entry)
             ttk.Button(
-                dates_frame, text="Today", width=6,
-                command=lambda v=var: v.set(dates.today_display()),
-            ).grid(row=r, column=2, padx=(4, 0), pady=3)
+                grid,
+                text="Today",
+                width=6,
+                command=lambda var=date_text: var.set(today_display()),
+            ).grid(row=row, column=2, padx=(4, 0), pady=3)
 
-            if status in storage.ROUND_TAG_COLUMNS:
-                tags = ttk.Frame(dates_frame)
-                tags.grid(row=r, column=3, sticky="w", padx=(12, 0))
-                format_col, focus_col = storage.ROUND_TAG_COLUMNS[status]
-                # Format always has a value (virtual unless set); focus may stay blank.
-                for caption, col, choices, default in (
-                    ("Format", format_col, list(storage.ROUND_FORMATS), storage.DEFAULT_ROUND_FORMAT),
-                    ("Focus", focus_col, ["", *storage.ROUND_FOCUSES], ""),
-                ):
-                    tag_var = tk.StringVar(value=row.get(col, "") or default)
-                    self.tag_vars[col] = tag_var
-                    ttk.Label(tags, text=caption).pack(side="left", padx=(0, 4))
-                    ttk.Combobox(
-                        tags, textvariable=tag_var, values=choices, state="readonly", width=13,
-                    ).pack(side="left", padx=(0, 10))
-            elif status == storage.STATUS_CODING_CHALLENGE:
-                self.coding_position = ttk.Label(dates_frame, foreground="#52514e")
-                self.coding_position.grid(row=r, column=3, sticky="w", padx=(12, 0))
+            if stage in INTERVIEW_ROUNDS:
+                self.round_tag_fields[stage] = self._build_round_tag_fields(
+                    grid, row, self.application.tags_of(stage)
+                )
+            elif stage is Stage.CODING_CHALLENGE:
+                self.coding_challenge_position = ttk.Label(
+                    grid, foreground=HINT_COLOR
+                )
+                self.coding_challenge_position.grid(
+                    row=row, column=3, sticky="w", padx=(12, 0)
+                )
 
         # Keep "-> after 1st Round" in step with the dates as they are typed.
-        for status in [*storage.ROUNDS, storage.STATUS_CODING_CHALLENGE]:
-            self.date_vars[status].trace_add("write", lambda *_: self._update_coding_position())
-        self._update_coding_position()
+        for stage in (*INTERVIEW_ROUNDS, Stage.CODING_CHALLENGE):
+            self.stage_dates[stage].trace_add(
+                "write", lambda *_: self._show_coding_challenge_position()
+            )
+        self._show_coding_challenge_position()
 
-        ttk.Separator(self).pack(fill="x", padx=10, pady=8)
+    @staticmethod
+    def _build_round_tag_fields(
+        grid: ttk.Frame, row: int, tags: RoundTags
+    ) -> RoundTagFields:
+        """Format always has a value (virtual unless set); focus may stay
+        blank."""
+        frame = ttk.Frame(grid)
+        frame.grid(row=row, column=3, sticky="w", padx=(12, 0))
+        fields = RoundTagFields(
+            format=tk.StringVar(value=tags.format or DEFAULT_ROUND_FORMAT),
+            focus=tk.StringVar(value=tags.focus or ""),
+        )
+        for caption, variable, choices in (
+            ("Format", fields.format, [f.value for f in RoundFormat]),
+            ("Focus", fields.focus, ["", *(f.value for f in RoundFocus)]),
+        ):
+            ttk.Label(frame, text=caption).pack(side="left", padx=(0, 4))
+            ttk.Combobox(
+                frame,
+                textvariable=variable,
+                values=choices,
+                state="readonly",
+                width=13,
+            ).pack(side="left", padx=(0, 10))
+        return fields
 
+    def _build_description_and_notes(self) -> None:
         ttk.Label(self, text="Job description").pack(anchor="w", padx=10)
-        desc_frame = ttk.Frame(self)
-        desc_frame.pack(fill="both", expand=True, padx=10)
-        self.desc_text = tk.Text(desc_frame, wrap="word", height=8)
-        scrollbar = ttk.Scrollbar(desc_frame, command=self.desc_text.yview)
-        self.desc_text.configure(yscrollcommand=scrollbar.set)
-        self.desc_text.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        self.desc_text.insert("1.0", row.get("job_description", ""))
-        dates.enable_today_shortcut(self.desc_text)
+        self.job_description = ScrolledText(
+            self, height=8, initial_text=self.application.job_description
+        )
+        self.job_description.pack(fill="both", expand=True, padx=10)
 
         ttk.Label(self, text="Notes").pack(anchor="w", padx=10, pady=(8, 2))
-        self.notes_var = tk.StringVar(value=row.get("notes", ""))
-        notes_entry = ttk.Entry(self, textvariable=self.notes_var)
+        self.notes = tk.StringVar(value=self.application.notes)
+        notes_entry = ttk.Entry(self, textvariable=self.notes)
         notes_entry.pack(fill="x", padx=10)
-        dates.enable_today_shortcut(notes_entry)
+        enable_today_shortcut(notes_entry)
 
-        btn_row = ttk.Frame(self)
-        btn_row.pack(fill="x", padx=10, pady=10)
-        ttk.Button(btn_row, text="Delete", command=self._delete).pack(side="left")
-        ttk.Button(btn_row, text="Cancel", command=self.destroy).pack(side="right")
-        ttk.Button(btn_row, text="Save Changes", command=self._save).pack(side="right", padx=(0, 6))
+    def _build_buttons(self) -> None:
+        buttons = ttk.Frame(self)
+        buttons.pack(fill="x", padx=10, pady=10)
+        ttk.Button(buttons, text="Delete", command=self._delete).pack(
+            side="left"
+        )
+        ttk.Button(buttons, text="Cancel", command=self.destroy).pack(
+            side="right"
+        )
+        ttk.Button(buttons, text="Save Changes", command=self._save).pack(
+            side="right", padx=(0, 6)
+        )
 
-    def _update_coding_position(self):
-        # Only complete dates count; one still being typed is left out.
-        row = {
-            storage.STATUS_DATE_COLUMNS[status]: dates.to_iso(value)
-            if value and dates.is_valid_display_date(value) else ""
-            for status, var in self.date_vars.items()
-            for value in [var.get().strip()]
-        }
-        position = storage.coding_challenge_position(row)
-        self.coding_position.configure(text=f"\u2192 {position}" if position else "")
+    # -- behaviour -----------------------------------------------------------
 
-    def _save(self):
-        for status, var in self.date_vars.items():
-            value = var.get().strip()
-            if not dates.is_valid_display_date(value):
+    def _entered_stage_dates(self) -> dict[Stage, date]:
+        """The complete, valid dates entered; blank or half-typed ones are
+        left out."""
+        entered = {}
+        for stage, date_text in self.stage_dates.items():
+            if is_valid_display_date(date_text.get()):
+                day = parse_display_date(date_text.get())
+                if day:
+                    entered[stage] = day
+        return entered
+
+    def _show_coding_challenge_position(self) -> None:
+        preview = Application(stage_dates=self._entered_stage_dates())
+        position = preview.coding_challenge_position()
+        self.coding_challenge_position.configure(
+            text=f"→ {position}" if position else ""
+        )
+
+    def _save(self) -> None:
+        for stage, date_text in self.stage_dates.items():
+            if not is_valid_display_date(date_text.get()):
                 messagebox.showwarning(
-                    "Invalid date", f"'{status}' date must be in {dates.DISPLAY_HINT} format.", parent=self
+                    "Invalid date",
+                    f"'{stage}' date must be in {DISPLAY_HINT} format.",
+                    parent=self,
                 )
                 return
         try:
-            contact_email = storage.normalize_emails(self.contact_var.get())
-        except ValueError as exc:
-            messagebox.showwarning("Invalid email", f"'{exc}' is not a valid email address.", parent=self)
+            contact_email = normalize_email_list(self.contact_email.get())
+        except InvalidEmailError as error:
+            messagebox.showwarning("Invalid email", str(error), parent=self)
             return
 
-        updates = {
-            "job_title": self.title_var.get().strip(),
-            "company": self.company_var.get().strip(),
-            "contact_email": contact_email,
-            "url": self.url_var.get().strip(),
-            "salary": self.salary_var.get().strip(),
-            "status": self.status_var.get(),
-            "notes": self.notes_var.get().strip(),
-            "job_description": self.desc_text.get("1.0", "end").strip(),
-        }
-        for status, var in self.date_vars.items():
-            updates[storage.STATUS_DATE_COLUMNS[status]] = dates.to_iso(var.get().strip())
-        for col, var in self.tag_vars.items():
-            updates[col] = var.get()
-
-        storage.update_application(self.app_id, updates)
-        self.on_saved()
+        self.repository.update(
+            replace(
+                self.application,
+                job_title=self.job_title.get().strip(),
+                company=self.company.get().strip(),
+                contact_email=contact_email,
+                url=self.url.get().strip(),
+                salary=self.salary.get().strip(),
+                status=Stage(self.status.get()),
+                stage_dates=self._entered_stage_dates(),
+                round_tags={
+                    interview_round: tag_fields.tags()
+                    for interview_round, tag_fields in (
+                        self.round_tag_fields.items()
+                    )
+                },
+                job_description=self.job_description.get(),
+                notes=self.notes.get().strip(),
+            )
+        )
+        self.on_changed()
         self.destroy()
 
-    def _delete(self):
-        if messagebox.askyesno("Delete application", "Remove this application permanently?", parent=self):
-            storage.delete_application(self.app_id)
-            self.on_deleted()
+    def _delete(self) -> None:
+        if messagebox.askyesno(
+            "Delete application",
+            "Remove this application permanently?",
+            parent=self,
+        ):
+            self.repository.delete(self.application.id)
+            self.on_changed()
             self.destroy()

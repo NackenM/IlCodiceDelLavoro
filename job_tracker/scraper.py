@@ -4,13 +4,17 @@ This is a heuristic parse of arbitrary third-party HTML, so results are
 always shown to the user for review/editing before being saved -- never
 trust it as ground truth.
 """
+
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import requests
 from bs4 import BeautifulSoup
 
 USER_AGENT = "Mozilla/5.0 (compatible; JobApplicationTracker/1.0)"
 
+# Tried in order; the first match with enough text wins.
 DESCRIPTION_SELECTORS = [
     '[class*="job-description"]',
     '[class*="jobDescription"]',
@@ -20,32 +24,47 @@ DESCRIPTION_SELECTORS = [
     "article",
     "main",
 ]
+# Shorter matches are usually navigation or teasers, not the description.
+MIN_DESCRIPTION_LENGTH = 200
 
 
-def fetch_and_parse(url: str, timeout: int = 15) -> dict:
-    """Fetch `url` and return a best-effort {title, description, url}."""
-    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+@dataclass(frozen=True)
+class ParsedPosting:
+    title: str
+    description: str
+    url: str
+
+
+def fetch_posting(url: str, timeout_seconds: int = 15) -> ParsedPosting:
+    response = requests.get(
+        url, headers={"User-Agent": USER_AGENT}, timeout=timeout_seconds
+    )
     response.raise_for_status()
-    soup = BeautifulSoup(response.text, "lxml")
+    return parse_posting_html(response.text, url)
 
-    title = ""
-    h1 = soup.find("h1")
-    if h1 and h1.get_text(strip=True):
-        title = h1.get_text(strip=True)
-    elif soup.title and soup.title.get_text(strip=True):
-        title = soup.title.get_text(strip=True)
 
-    description = ""
+def parse_posting_html(html: str, url: str) -> ParsedPosting:
+    soup = BeautifulSoup(html, "lxml")
+    return ParsedPosting(
+        title=_find_title(soup),
+        description=_find_description(soup),
+        url=url,
+    )
+
+
+def _find_title(soup: BeautifulSoup) -> str:
+    for node in (soup.find("h1"), soup.title):
+        if node and node.get_text(strip=True):
+            return node.get_text(strip=True)
+    return ""
+
+
+def _find_description(soup: BeautifulSoup) -> str:
     for selector in DESCRIPTION_SELECTORS:
         node = soup.select_one(selector)
         if node:
             text = node.get_text("\n", strip=True)
-            if len(text) > 200:
-                description = text
-                break
-
-    if not description:
-        body = soup.find("body")
-        description = body.get_text("\n", strip=True) if body else ""
-
-    return {"title": title, "description": description, "url": url}
+            if len(text) > MIN_DESCRIPTION_LENGTH:
+                return text
+    body = soup.find("body")
+    return body.get_text("\n", strip=True) if body else ""
