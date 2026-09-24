@@ -8,6 +8,7 @@ from tkinter import messagebox, ttk
 
 from .. import scraper, storage
 from . import dates
+from .company_field import CompanyCombobox
 
 
 class AddApplicationDialog(tk.Toplevel):
@@ -55,7 +56,7 @@ class AddApplicationDialog(tk.Toplevel):
 
         ttk.Label(form, text="Company").grid(row=1, column=0, sticky="w", pady=4)
         self.company_var = tk.StringVar()
-        ttk.Entry(form, textvariable=self.company_var).grid(row=1, column=1, sticky="ew", pady=4)
+        CompanyCombobox(form, textvariable=self.company_var).grid(row=1, column=1, sticky="ew", pady=4)
 
         ttk.Label(form, text="Contact email(s)").grid(row=2, column=0, sticky="w", pady=4)
         self.contact_var = tk.StringVar()

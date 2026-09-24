@@ -1,6 +1,7 @@
-"""Main application window: application list + pipeline waterfall chart."""
+"""Main application window: application list + pipeline chart."""
 from __future__ import annotations
 
+import signal
 import tkinter as tk
 from tkinter import ttk
 
@@ -10,6 +11,7 @@ from .. import chart, storage
 from . import dates
 from .add_dialog import AddApplicationDialog
 from .edit_dialog import EditApplicationDialog
+from .stats_dialog import StatisticsDialog
 
 LIST_COLUMNS = [
     ("job_title", "Job Title", 200),
@@ -21,6 +23,11 @@ LIST_COLUMNS = [
 ]
 DATE_LIST_COLUMNS = {"date_applied", "last_update"}
 STATUS_ORDER = {status: i for i, status in enumerate(storage.STATUS_CHOICES)}
+SIGNAL_CHECK_MS = 200
+CHART_VIEWS = {
+    "Outcome waterfall": chart.build_outcome_waterfall_figure,
+    "Progress by application": chart.build_progress_figure,
+}
 
 
 class MainWindow(tk.Tk):
@@ -44,6 +51,14 @@ class MainWindow(tk.Tk):
         bar.pack(fill="x", padx=8, pady=6)
         ttk.Button(bar, text="+ Add Application", command=self._open_add_dialog).pack(side="left")
         ttk.Button(bar, text="Refresh", command=self.refresh).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="Statistics", command=self._open_stats_dialog).pack(side="left", padx=(6, 0))
+        ttk.Label(bar, text="Chart").pack(side="left", padx=(18, 6))
+        self.chart_view_var = tk.StringVar(value=next(iter(CHART_VIEWS)))
+        view_combo = ttk.Combobox(
+            bar, textvariable=self.chart_view_var, values=list(CHART_VIEWS), state="readonly", width=22
+        )
+        view_combo.pack(side="left")
+        view_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_chart())
         ttk.Label(bar, text="Click a column header to sort  ·  Double-click a row to edit").pack(side="right")
 
     def _build_body(self):
@@ -113,10 +128,13 @@ class MainWindow(tk.Tk):
     def _refresh_chart(self):
         if self.canvas is not None:
             self.canvas.get_tk_widget().destroy()
-        figure = chart.build_waterfall_figure(self.df)
+        figure = CHART_VIEWS[self.chart_view_var.get()](self.df)
         self.canvas = FigureCanvasTkAgg(figure, master=self.chart_container)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def _open_stats_dialog(self):
+        StatisticsDialog(self, self.df)
 
     def _open_add_dialog(self):
         AddApplicationDialog(self, on_saved=self.refresh)
@@ -132,7 +150,28 @@ class MainWindow(tk.Tk):
         EditApplicationDialog(self, row.iloc[0].to_dict(), on_saved=self.refresh, on_deleted=self.refresh)
 
 
+def _close_on_signals(app: tk.Tk) -> None:
+    """Close the window cleanly on Ctrl+C / kill (e.g. PyCharm's Stop or Rerun).
+
+    On macOS, Tk 9 installs a C signal handler that tears Tcl down from inside
+    the handler; the resulting <Destroy> callbacks re-enter Python without the
+    GIL and abort the interpreter. Re-registering Python handlers after Tk is
+    created replaces it, so the shutdown runs on the main thread instead.
+    """
+    for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), lambda *_: app.destroy())
+
+    # mainloop only checks for pending Python signals between Tk events, so
+    # keep a steady trickle of events coming while the app sits idle.
+    def heartbeat():
+        app.after(SIGNAL_CHECK_MS, heartbeat)
+
+    heartbeat()
+
+
 def main():
     storage.ensure_csv()
     app = MainWindow()
+    _close_on_signals(app)
     app.mainloop()
