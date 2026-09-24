@@ -4,10 +4,10 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
-from datetime import date
 from tkinter import messagebox, ttk
 
 from .. import scraper, storage
+from . import dates
 
 
 class AddApplicationDialog(tk.Toplevel):
@@ -57,12 +57,20 @@ class AddApplicationDialog(tk.Toplevel):
         self.company_var = tk.StringVar()
         ttk.Entry(form, textvariable=self.company_var).grid(row=1, column=1, sticky="ew", pady=4)
 
-        ttk.Label(form, text="Date applied").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Label(form, text="Contact email(s)").grid(row=2, column=0, sticky="w", pady=4)
+        self.contact_var = tk.StringVar()
+        ttk.Entry(form, textvariable=self.contact_var).grid(row=2, column=1, sticky="ew", pady=4)
+
+        ttk.Label(form, text="Date applied").grid(row=3, column=0, sticky="w", pady=4)
         date_row = ttk.Frame(form)
-        date_row.grid(row=2, column=1, sticky="ew", pady=4)
-        self.date_applied_var = tk.StringVar(value=date.today().isoformat())
-        ttk.Entry(date_row, textvariable=self.date_applied_var, width=14).pack(side="left")
-        ttk.Label(date_row, text="YYYY-MM-DD").pack(side="left", padx=(6, 0))
+        date_row.grid(row=3, column=1, sticky="ew", pady=4)
+        self.date_applied_var = tk.StringVar(value=dates.today_display())
+        date_entry = ttk.Entry(date_row, textvariable=self.date_applied_var, width=14)
+        date_entry.pack(side="left")
+        dates.enable_today_shortcut(date_entry)
+        ttk.Label(date_row, text=f"{dates.DISPLAY_HINT}  (type {dates.TODAY_TOKEN} for today)").pack(
+            side="left", padx=(6, 0)
+        )
 
         ttk.Label(
             self, text="Job description  (parsed content is a preview -- edit freely before saving)"
@@ -74,6 +82,7 @@ class AddApplicationDialog(tk.Toplevel):
         self.desc_text.configure(yscrollcommand=scrollbar.set)
         self.desc_text.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        dates.enable_today_shortcut(self.desc_text)
 
         btn_row = ttk.Frame(self)
         btn_row.pack(fill="x", padx=10, pady=10)
@@ -130,27 +139,27 @@ class AddApplicationDialog(tk.Toplevel):
             messagebox.showwarning("Missing title", "Job title is required.", parent=self)
             return
         date_applied = self.date_applied_var.get().strip()
-        if date_applied and not _is_valid_date(date_applied):
-            messagebox.showwarning("Invalid date", "Date applied must be in YYYY-MM-DD format.", parent=self)
+        if not dates.is_valid_display_date(date_applied):
+            messagebox.showwarning(
+                "Invalid date", f"Date applied must be in {dates.DISPLAY_HINT} format.", parent=self
+            )
+            return
+        try:
+            contact_email = storage.normalize_emails(self.contact_var.get())
+        except ValueError as exc:
+            messagebox.showwarning("Invalid email", f"'{exc}' is not a valid email address.", parent=self)
             return
 
         record = {
             "job_title": title,
             "company": self.company_var.get().strip(),
+            "contact_email": contact_email,
             "url": self.url_var.get().strip(),
             "job_description": self.desc_text.get("1.0", "end").strip(),
             "status": storage.STATUS_APPLIED,
             "notes": "",
-            "date_applied": date_applied,
+            "date_applied": dates.to_iso(date_applied),
         }
         storage.add_application(record)
         self.on_saved()
         self.destroy()
-
-
-def _is_valid_date(value: str) -> bool:
-    try:
-        date.fromisoformat(value)
-        return True
-    except ValueError:
-        return False

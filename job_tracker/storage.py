@@ -1,7 +1,9 @@
 """CSV-backed storage for job applications."""
 from __future__ import annotations
 
+import re
 import uuid
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -53,12 +55,28 @@ COLUMNS = [
     "id",
     "job_title",
     "company",
+    "contact_email",
     "url",
     "job_description",
     "status",
     "notes",
+    "last_update",
     *STATUS_DATE_COLUMNS.values(),
 ]
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def normalize_emails(raw: str) -> str:
+    """Split on commas/semicolons/whitespace and re-join as "a@x.com, b@y.com".
+
+    Raises ValueError naming the first address that doesn't look like an email.
+    """
+    addresses = [a for a in re.split(r"[,;\s]+", raw) if a]
+    for address in addresses:
+        if not _EMAIL_RE.match(address):
+            raise ValueError(address)
+    return ", ".join(addresses)
 
 
 def ensure_csv() -> None:
@@ -86,6 +104,7 @@ def add_application(record: dict) -> str:
     new_id = str(uuid.uuid4())[:8]
     row = {col: record.get(col, "") for col in COLUMNS}
     row["id"] = new_id
+    row["last_update"] = date.today().isoformat()
     df.loc[len(df)] = row
     save_all(df)
     return new_id
@@ -98,6 +117,7 @@ def update_application(app_id: str, updates: dict) -> None:
         raise ValueError(f"No application with id {app_id}")
     for key, value in updates.items():
         df.loc[idx, key] = value
+    df.loc[idx, "last_update"] = date.today().isoformat()
     save_all(df)
 
 
