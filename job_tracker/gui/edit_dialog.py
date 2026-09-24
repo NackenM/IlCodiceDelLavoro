@@ -95,13 +95,16 @@ class EditApplicationDialog(tk.Toplevel):
                 tags = ttk.Frame(dates_frame)
                 tags.grid(row=r, column=3, sticky="w", padx=(12, 0))
                 format_col, focus_col = storage.ROUND_TAG_COLUMNS[status]
-                for caption, col, choices in (("Format", format_col, storage.ROUND_FORMATS),
-                                              ("Focus", focus_col, storage.ROUND_FOCUSES)):
-                    tag_var = tk.StringVar(value=row.get(col, ""))
+                # Format always has a value (virtual unless set); focus may stay blank.
+                for caption, col, choices, default in (
+                    ("Format", format_col, list(storage.ROUND_FORMATS), storage.DEFAULT_ROUND_FORMAT),
+                    ("Focus", focus_col, ["", *storage.ROUND_FOCUSES], ""),
+                ):
+                    tag_var = tk.StringVar(value=row.get(col, "") or default)
                     self.tag_vars[col] = tag_var
                     ttk.Label(tags, text=caption).pack(side="left", padx=(0, 4))
                     ttk.Combobox(
-                        tags, textvariable=tag_var, values=["", *choices], state="readonly", width=13,
+                        tags, textvariable=tag_var, values=choices, state="readonly", width=13,
                     ).pack(side="left", padx=(0, 10))
             elif status == storage.STATUS_CODING_CHALLENGE:
                 self.coding_position = ttk.Label(dates_frame, foreground="#52514e")

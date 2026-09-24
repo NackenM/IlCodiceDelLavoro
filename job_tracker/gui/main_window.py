@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import signal
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -12,6 +12,7 @@ from . import dates
 from .add_dialog import AddApplicationDialog
 from .edit_dialog import EditApplicationDialog
 from .stats_dialog import StatisticsDialog
+from .timeline_dialog import TimelineDialog
 
 LIST_COLUMNS = [
     ("job_title", "Job Title", 200),
@@ -53,6 +54,7 @@ class MainWindow(tk.Tk):
         ttk.Button(bar, text="+ Add Application", command=self._open_add_dialog).pack(side="left")
         ttk.Button(bar, text="Refresh", command=self.refresh).pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="Statistics", command=self._open_stats_dialog).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="Timeline", command=self._open_timeline_dialog).pack(side="left", padx=(6, 0))
         ttk.Label(bar, text="Chart").pack(side="left", padx=(18, 6))
         self.chart_view_var = tk.StringVar(value=next(iter(CHART_VIEWS)))
         view_combo = ttk.Combobox(
@@ -60,7 +62,8 @@ class MainWindow(tk.Tk):
         )
         view_combo.pack(side="left")
         view_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_chart())
-        ttk.Label(bar, text="Click a column header to sort  ·  Double-click a row to edit").pack(side="right")
+        ttk.Label(bar, text="Click a column header to sort  ·  Double-click a row to edit  ·  "
+                  "\u2318-click rows for Timeline").pack(side="right")
 
     def _build_body(self):
         paned = ttk.Panedwindow(self, orient="vertical")
@@ -68,7 +71,7 @@ class MainWindow(tk.Tk):
 
         list_frame = ttk.Frame(paned)
         columns = [c[0] for c in LIST_COLUMNS]
-        self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode="browse")
+        self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode="extended")
         for key, heading, width in LIST_COLUMNS:
             self.tree.heading(key, text=heading, command=lambda k=key: self._sort_by(k))
             self.tree.column(key, width=width, anchor="w")
@@ -147,14 +150,29 @@ class MainWindow(tk.Tk):
     def _open_stats_dialog(self):
         StatisticsDialog(self, self.df)
 
+    def _open_timeline_dialog(self):
+        selected = list(self.tree.selection())
+        if not selected:
+            messagebox.showinfo(
+                "Timeline",
+                "Select one or more applications in the list first "
+                "(\u2318- or Shift-click to select several).",
+                parent=self,
+            )
+            return
+        # Keep the list's current order, so the timeline reads like the list.
+        by_id = self.df.set_index("id", drop=False)
+        TimelineDialog(self, by_id.loc[selected].reset_index(drop=True))
+
     def _open_add_dialog(self):
         AddApplicationDialog(self, on_saved=self.refresh)
 
-    def _on_row_double_click(self, _event):
-        selection = self.tree.selection()
-        if not selection:
+    def _on_row_double_click(self, event):
+        # The row under the cursor: with several rows selected, the
+        # selection alone doesn't say which one was double-clicked.
+        app_id = self.tree.identify_row(event.y)
+        if not app_id:
             return
-        app_id = selection[0]
         row = self.df[self.df["id"] == app_id]
         if row.empty:
             return

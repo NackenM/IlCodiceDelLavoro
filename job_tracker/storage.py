@@ -63,6 +63,8 @@ ROUNDS = [STATUS_ROUND_1, STATUS_ROUND_2, STATUS_ROUND_3]
 # letter in the list ("Interview - 2nd Round · V T").
 ROUND_FORMATS = {"On-site": "O", "Virtual": "V", "Phone": "P"}
 ROUND_FOCUSES = {"Technical": "T", "HR": "H", "Hiring manager": "M"}
+# A round without a format set counts as virtual.
+DEFAULT_ROUND_FORMAT = "Virtual"
 ROUND_TAG_COLUMNS = {
     STATUS_ROUND_1: ("round_1_format", "round_1_focus"),
     STATUS_ROUND_2: ("round_2_format", "round_2_focus"),
@@ -119,11 +121,22 @@ def salary_amount(text: str) -> float | None:
     return amount
 
 
+def round_format(row, round_status: str) -> str:
+    """The round's format, falling back to DEFAULT_ROUND_FORMAT when unset."""
+    return row[ROUND_TAG_COLUMNS[round_status][0]] or DEFAULT_ROUND_FORMAT
+
+
+def round_tags(row, round_status: str) -> list[str]:
+    """[format, focus] of an interview round; the focus only when set."""
+    focus = row[ROUND_TAG_COLUMNS[round_status][1]]
+    return [round_format(row, round_status), *([focus] if focus else [])]
+
+
 def round_tag_letters(row, round_status: str) -> str:
-    """Format + focus letters of an interview round, e.g. "V T" ("" if untagged)."""
-    format_col, focus_col = ROUND_TAG_COLUMNS[round_status]
-    letters = (ROUND_FORMATS.get(row[format_col], ""), ROUND_FOCUSES.get(row[focus_col], ""))
-    return " ".join(letter for letter in letters if letter)
+    """Format + focus letters of an interview round, e.g. "V T"."""
+    format_letter = ROUND_FORMATS.get(round_format(row, round_status), "")
+    focus_letter = ROUND_FOCUSES.get(row[ROUND_TAG_COLUMNS[round_status][1]], "")
+    return " ".join(letter for letter in (format_letter, focus_letter) if letter)
 
 
 def coding_challenge_position(row) -> str:

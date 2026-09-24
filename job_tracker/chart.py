@@ -1,9 +1,12 @@
 """Charts of the application pipeline: outcome waterfall, per-application
-progress, and the success-rate donut."""
+progress, statistics (success rate, companies) and per-application timelines."""
 from __future__ import annotations
+
+from datetime import date, timedelta
 
 import pandas as pd
 from matplotlib.colors import to_rgba
+from matplotlib.dates import DateFormatter
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
 
@@ -39,9 +42,9 @@ OUTCOME_COLORS = {
     outcomes.AWAITING: "#eda100",
 }
 # Interview-round segments in the progress chart show the round's format:
-# on-site (and untagged) rounds are solid like every other stage, virtual and
-# phone rounds a light tint of the application's color with a dashed or
-# dotted outline.
+# on-site rounds are solid like every other stage, virtual (also the default
+# when unset) and phone rounds a light tint of the application's color with a
+# dashed or dotted outline.
 FORMAT_LINESTYLES = {"Virtual": (0, (4, 2)), "Phone": (0, (1, 1.6))}
 FORMAT_TINT_ALPHA = 0.3
 
@@ -96,9 +99,7 @@ def _style_bar_axes(ax) -> None:
 def _row_tooltip(row: pd.Series, stage: str | None = None) -> str:
     lines = [row["company"] or "(no company)", row["job_title"], f"Status: {row['status'] or '--'}"]
     if stage in storage.ROUND_TAG_COLUMNS:
-        tags = " · ".join(row[col] for col in storage.ROUND_TAG_COLUMNS[stage] if row[col])
-        if tags:
-            lines.append(f"{SHORT_LABELS[stage]}: {tags}")
+        lines.append(f"{SHORT_LABELS[stage]}: {' · '.join(storage.round_tags(row, stage))}")
     return "\n".join(line for line in lines if line)
 
 
@@ -118,15 +119,23 @@ def build_outcome_waterfall_figure(df: pd.DataFrame) -> Figure:
         "Rejected\nright away", by_outcome[outcomes.REJECTED_EARLY],
         OUTCOME_COLORS[outcomes.REJECTED_EARLY], False,
     ))
+    # A step for every round, even at zero, so the layout stays the same as
+    # the data changes. The online assessment is optional, so like in the
+    # progress chart it only appears once some application has one.
+    has_assessment = any(_reached(r, storage.STATUS_ONLINE_ASSESSMENT) for r in rows)
     for stage in storage.FUNNEL_ORDER[1:-1]:
+        if stage == storage.STATUS_ONLINE_ASSESSMENT and not has_assessment:
+            continue
         rejected_here = [r for r in by_outcome[outcomes.REJECTED_LATER] if outcomes.rejection_stage(r) == stage]
-        if rejected_here:  # only stages where someone actually dropped out
-            steps.append((
-                "Rejected after\n" + SHORT_LABELS[stage].replace("\n", " "), rejected_here,
-                OUTCOME_COLORS[outcomes.REJECTED_LATER], False,
-            ))
-    steps.append(("Awaiting\nreply", by_outcome[outcomes.AWAITING], OUTCOME_COLORS[outcomes.AWAITING], False))
-    steps.append(("In progress", by_outcome[outcomes.IN_PROGRESS], OUTCOME_COLORS[outcomes.IN_PROGRESS], False))
+        steps.append((
+            "Rejected after\n" + SHORT_LABELS[stage], rejected_here,
+            OUTCOME_COLORS[outcomes.REJECTED_LATER], False,
+        ))
+    # Still open: in an interview round or waiting for a first reply.
+    steps.append((
+        "In progress", by_outcome[outcomes.IN_PROGRESS] + by_outcome[outcomes.AWAITING],
+        OUTCOME_COLORS[outcomes.IN_PROGRESS], False,
+    ))
     steps.append(("Offers", by_outcome[outcomes.OFFER], OUTCOME_COLORS[outcomes.OFFER], True))
 
     label_pad = max(total * 0.02, 0.15)
@@ -156,7 +165,7 @@ def build_outcome_waterfall_figure(df: pd.DataFrame) -> Figure:
         fontsize=11, color=INK_PRIMARY, loc="left", pad=12,
     )
     ax.set_xticks(range(len(steps)))
-    ax.set_xticklabels([s[0] for s in steps], fontsize=8, color=INK_SECONDARY)
+    ax.set_xticklabels([s[0] for s in steps], fontsize=7.5, color=INK_SECONDARY)
     ax.set_ylabel("Applications", fontsize=9, color=INK_SECONDARY)
     ax.set_ylim(0, total * 1.18 if total else 1)
     _style_bar_axes(ax)
@@ -188,8 +197,8 @@ def build_progress_figure(df: pd.DataFrame) -> Figure:
     # at the bottom, so each one forms a flat band that ends where it stopped.
     rows = [row for _, row in df.iterrows()]
     round_formats = {
-        (row["id"], status): row[storage.ROUND_TAG_COLUMNS[status][0]]
-        for row in rows for status in storage.ROUNDS
+        (row["id"], status): storage.round_format(row, status)
+        for row in rows for status in storage.ROUNDS if _reached(row, status)
     }
     styles = {
         row["id"]: (CATEGORICAL[i % len(CATEGORICAL)], HATCHES[(i // len(CATEGORICAL)) % len(HATCHES)])
@@ -256,7 +265,7 @@ def build_progress_figure(df: pd.DataFrame) -> Figure:
     if any(round_formats.values()):
         key = ax.legend(
             handles=[
-                Patch(facecolor=INK_MUTED, label="On-site / not set"),
+                Patch(facecolor=INK_MUTED, label="On-site"),
                 *(Patch(facecolor=to_rgba(INK_MUTED, FORMAT_TINT_ALPHA), edgecolor=INK_MUTED,
                         linestyle=style, linewidth=1.2, label=fmt)
                   for fmt, style in FORMAT_LINESTYLES.items()),
@@ -266,7 +275,7 @@ def build_progress_figure(df: pd.DataFrame) -> Figure:
         )
         ax.add_artist(key)  # keep it when the application legend is added below
     if rows:
-        legend_rows = 18
+        legend_rows = 30  # one legend column up to this many applications
         ax.legend(
             loc="upper left", bbox_to_anchor=(1.01, 1), frameon=False,
             fontsize=7.5, labelcolor=INK_SECONDARY, handlelength=1.4, reverse=True,
@@ -450,6 +459,141 @@ def build_company_share_figure(df: pd.DataFrame, max_slices: int = len(CATEGORIC
 
     fig.tight_layout()
     fig.subplots_adjust(right=0.6)  # room for the legend beside the donut
+    return fig
+
+
+TIMELINE_LABELS = {
+    storage.STATUS_APPLIED: "Applied",
+    storage.STATUS_ONLINE_ASSESSMENT: "OA",
+    storage.STATUS_ROUND_1: "1st",
+    storage.STATUS_ROUND_2: "2nd",
+    storage.STATUS_ROUND_3: "3rd",
+    storage.STATUS_CODING_CHALLENGE: "CC",
+    storage.STATUS_REJECTED: "Rejected",
+    storage.STATUS_OFFER: "Offer",
+}
+TIMELINE_COLORS = {
+    storage.STATUS_APPLIED: INK_SECONDARY,
+    storage.STATUS_ONLINE_ASSESSMENT: "#eda100",
+    storage.STATUS_ROUND_1: "#2a78d6",
+    storage.STATUS_ROUND_2: "#2a78d6",
+    storage.STATUS_ROUND_3: "#2a78d6",
+    storage.STATUS_CODING_CHALLENGE: "#4a3aa7",
+    storage.STATUS_REJECTED: OUTCOME_COLORS[outcomes.REJECTED_LATER],
+    storage.STATUS_OFFER: OUTCOME_COLORS[outcomes.OFFER],
+}
+# Day counts on segments narrower than this share of the time axis are left
+# to the hover tooltip instead of colliding with the markers.
+TIMELINE_MIN_LABEL_SHARE = 0.035
+# Rough width of one label character as a share of the time axis, used to
+# stagger stage labels that would overlap.
+TIMELINE_CHAR_SHARE = 0.011
+
+
+def _timeline_events(row: pd.Series) -> list[tuple[date, list[str]]]:
+    """(day, stages reached that day) in date order; same-day stages share a
+    marker, listed in pipeline order."""
+    by_day: dict[date, list[str]] = {}
+    for status in storage.STATUS_CHOICES:
+        value = row[storage.STATUS_DATE_COLUMNS[status]]
+        if value:
+            by_day.setdefault(date.fromisoformat(value), []).append(status)
+    return sorted(by_day.items())
+
+
+def _stage_detail(row: pd.Series, status: str) -> str:
+    if status in storage.ROUND_TAG_COLUMNS:
+        return f"{status} ({' · '.join(storage.round_tags(row, status))})"
+    if status == storage.STATUS_CODING_CHALLENGE and (position := storage.coding_challenge_position(row)):
+        return f"{status} ({position})"
+    return status
+
+
+def build_timeline_figure(df: pd.DataFrame, today: date | None = None) -> Figure:
+    """One row per application: a marker per stage reached, the days between
+    consecutive stages on the line, and a dashed tail up to today for
+    applications that are still open."""
+    today = today or date.today()
+    rows = [row for _, row in df.iterrows()]
+    fig, ax = _new_axes(figsize=(9, 1.4 + 0.62 * max(len(rows), 1)))
+    timelines = [(row, _timeline_events(row)) for row in rows]
+    all_days = [day for _, events in timelines for day, _ in events]
+    if not all_days:
+        ax.text(0.5, 0.5, "The selected applications have no stage dates yet", ha="center", va="center",
+                fontsize=10, color=INK_MUTED, transform=ax.transAxes)
+        ax.axis("off")
+        return fig
+
+    open_rows = {row["id"] for row, _ in timelines
+                 if outcomes.classify(row, today) in (outcomes.IN_PROGRESS, outcomes.AWAITING, outcomes.GHOSTED)}
+    start = min(all_days)
+    end = max(all_days + ([today] if open_rows else []))
+    span = max((end - start).days, 1)
+
+    # (artist, tooltip text) for the hover; markers are checked before the
+    # line segments they sit on.
+    markers, segments = [], []
+    for y, (row, events) in enumerate(timelines):
+        if not events:
+            ax.text(start, y, "  no stage dates", va="center", fontsize=8, color=INK_MUTED)
+            continue
+        days = [day for day, _ in events]
+        (line,) = ax.plot(days, [y] * len(days), color=BASELINE, linewidth=2.2, zorder=2)
+        for (d0, s0), (d1, s1) in zip(events, events[1:]):
+            gap = (d1 - d0).days
+            if gap and gap / span >= TIMELINE_MIN_LABEL_SHARE:
+                ax.text(d0 + (d1 - d0) / 2, y - 0.14, f"{gap}d", ha="center", va="bottom",
+                        fontsize=7.5, color=INK_SECONDARY, zorder=5)
+            (hit,) = ax.plot([d0, d1], [y, y], color="none", linewidth=8, zorder=1)
+            segments.append((hit, f"{TIMELINE_LABELS[s0[-1]]} → {TIMELINE_LABELS[s1[0]]}: {gap} days\n"
+                                  f"{d0:%d.%m.%Y} → {d1:%d.%m.%Y}"))
+
+        last_day = days[-1]
+        total_days = (last_day - days[0]).days
+        if row["id"] in open_rows and today > last_day:
+            ax.plot([last_day, today], [y, y], color=BASELINE, linewidth=1.6,
+                    linestyle=(0, (3, 2)), zorder=2)
+            outcome = outcomes.classify(row, today).lower()
+            total_days = (today - days[0]).days
+            summary, summary_at = f"{total_days}d so far · {outcome}", today
+        else:
+            summary, summary_at = f"{total_days}d in total", last_day
+        ax.annotate(summary, (summary_at, y), xytext=(9, 0), textcoords="offset points",
+                    va="center", fontsize=7.5, color=INK_SECONDARY)
+
+        level, prev_day, prev_text = 0, None, ""
+        for day, stages in events:
+            color = TIMELINE_COLORS[stages[-1]]
+            (marker,) = ax.plot([day], [y], marker="o", markersize=8, color=color,
+                                markeredgecolor=SURFACE, markeredgewidth=1.5, zorder=4)
+            text = "+".join(TIMELINE_LABELS[s] for s in stages)
+            # Step the stage label down when it would run into the previous one.
+            needed = ((len(prev_text) + len(text)) / 2 + 2) * TIMELINE_CHAR_SHARE
+            crowded = prev_day is not None and (day - prev_day).days / span < needed
+            level = 1 - level if crowded else 0
+            prev_day, prev_text = day, text
+            ax.text(day, y + 0.2 + 0.17 * level, text,
+                    ha="center", va="top", fontsize=7.5, color=color, zorder=5)
+            details = "\n".join(_stage_detail(row, s) for s in stages)
+            markers.append((marker, f"{day:%d.%m.%Y}\n{details}"))
+
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([_legend_label(row) for row in rows], fontsize=8.5, color=INK_SECONDARY)
+    ax.set_ylim(len(rows) - 0.35, -0.6)  # first selected application on top
+    # Room on the right for the "Nd so far" summaries.
+    ax.set_xlim(start - timedelta(days=span * 0.03), end + timedelta(days=span * 0.22))
+    ax.xaxis.set_major_formatter(DateFormatter("%d.%m."))
+    ax.grid(axis="x", color=GRIDLINE, linewidth=0.8, zorder=0)
+    ax.set_axisbelow(True)
+    for name, spine in ax.spines.items():
+        spine.set_visible(name == "bottom")
+        spine.set_color(BASELINE)
+    ax.tick_params(colors=INK_MUTED, length=0, labelsize=8)
+    ax.set_title(f"Timeline  ·  {len(rows)} application{'s' if len(rows) != 1 else ''}",
+                 fontsize=11, color=INK_PRIMARY, loc="left", pad=12)
+    _attach_hover(fig, ax, markers + segments)
+
+    fig.tight_layout()
     return fig
 
 
