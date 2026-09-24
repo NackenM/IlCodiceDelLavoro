@@ -26,7 +26,7 @@ OUTCOME_ORDER = [OFFER, IN_PROGRESS, REJECTED_LATER, REJECTED_EARLY, GHOSTED, AW
 # applications in the selected time range.
 TARGETS = {
     "Offer": {OFFER},
-    "Interview or coding challenge": {OFFER, IN_PROGRESS, REJECTED_LATER},
+    "Assessment or interview": {OFFER, IN_PROGRESS, REJECTED_LATER},
     "Any reply (not ghosted)": {OFFER, IN_PROGRESS, REJECTED_LATER, REJECTED_EARLY},
     "Rejection": {REJECTED_LATER, REJECTED_EARLY},
     "Ghosted": {GHOSTED},

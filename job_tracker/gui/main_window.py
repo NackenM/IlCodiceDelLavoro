@@ -16,7 +16,7 @@ from .stats_dialog import StatisticsDialog
 LIST_COLUMNS = [
     ("job_title", "Job Title", 200),
     ("company", "Company", 140),
-    ("status", "Status", 150),
+    ("status", "Status", 220),
     ("salary", "Salary", 110),
     ("contact_email", "Contact", 190),
     ("date_applied", "Date Applied", 95),
@@ -116,6 +116,14 @@ class MainWindow(tk.Tk):
         filled.sort(key=sort_value, reverse=self.sort_descending)
         return filled + blank
 
+    @staticmethod
+    def _cell_text(row, key: str) -> str:
+        if key in DATE_LIST_COLUMNS:
+            return dates.to_display(row[key])
+        if key == "status":
+            return storage.status_label(row)
+        return row[key]
+
     def _refresh_tree(self):
         for key, heading, _ in LIST_COLUMNS:
             arrow = ""
@@ -125,10 +133,7 @@ class MainWindow(tk.Tk):
 
         self.tree.delete(*self.tree.get_children())
         for row in self._sorted_rows():
-            values = [
-                dates.to_display(row[key]) if key in DATE_LIST_COLUMNS else row[key]
-                for key, _, _ in LIST_COLUMNS
-            ]
+            values = [self._cell_text(row, key) for key, _, _ in LIST_COLUMNS]
             self.tree.insert("", "end", iid=row["id"], values=values)
 
     def _refresh_chart(self):

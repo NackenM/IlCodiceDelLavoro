@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 from matplotlib.colors import to_rgba
 from matplotlib.figure import Figure
+from matplotlib.patches import Patch
 
 from . import outcomes, storage
 
@@ -37,17 +38,23 @@ OUTCOME_COLORS = {
     outcomes.GHOSTED: "#4a3aa7",
     outcomes.AWAITING: "#eda100",
 }
+# Interview-round segments in the progress chart show the round's format:
+# on-site (and untagged) rounds are solid like every other stage, virtual and
+# phone rounds a light tint of the application's color with a dashed or
+# dotted outline.
+FORMAT_LINESTYLES = {"Virtual": (0, (4, 2)), "Phone": (0, (1, 1.6))}
+FORMAT_TINT_ALPHA = 0.3
+
 COLOR_TOTAL = INK_SECONDARY
 DIMMED_ALPHA = 0.18
 
 SHORT_LABELS = {
     storage.STATUS_APPLIED: "Applied",
+    storage.STATUS_ONLINE_ASSESSMENT: "Online\nAssessment",
+    storage.STATUS_ROUND_1: "1st Round",
+    storage.STATUS_ROUND_2: "2nd Round",
+    storage.STATUS_ROUND_3: "3rd Round",
     storage.STATUS_CODING_CHALLENGE: "Coding\nChallenge",
-    storage.STATUS_INTERVIEW_INITIAL: "Initial\nInterview",
-    storage.STATUS_INTERVIEW_VIRTUAL: "Virtual\nInterview",
-    storage.STATUS_INTERVIEW_2ND: "2nd Round",
-    storage.STATUS_INTERVIEW_3RD: "3rd Round",
-    storage.STATUS_INTERVIEW_ONSITE: "On-site",
     storage.STATUS_OFFER: "Offer",
 }
 
@@ -86,8 +93,12 @@ def _style_bar_axes(ax) -> None:
     ax.tick_params(colors=INK_MUTED, length=0)
 
 
-def _row_tooltip(row: pd.Series) -> str:
+def _row_tooltip(row: pd.Series, stage: str | None = None) -> str:
     lines = [row["company"] or "(no company)", row["job_title"], f"Status: {row['status'] or '--'}"]
+    if stage in storage.ROUND_TAG_COLUMNS:
+        tags = " · ".join(row[col] for col in storage.ROUND_TAG_COLUMNS[stage] if row[col])
+        if tags:
+            lines.append(f"{SHORT_LABELS[stage]}: {tags}")
     return "\n".join(line for line in lines if line)
 
 
@@ -159,15 +170,27 @@ def build_progress_figure(df: pd.DataFrame) -> Figure:
     fig, ax = _new_axes()
 
     total = len(df)
-    stages = storage.FUNNEL_ORDER
-    columns = stages + [storage.STATUS_REJECTED]
-    labels = [SHORT_LABELS[s] for s in stages] + ["Rejected"]
+    # The online assessment is optional (not every company has one): its bar
+    # is left out while nobody has reached it, and the connectors bypass it.
+    assessment = storage.STATUS_ONLINE_ASSESSMENT
+    stages = [
+        s for s in storage.FUNNEL_ORDER
+        if s != assessment or any(_reached(row, s) for _, row in df.iterrows())
+    ]
+    # Side stages after the forward pipeline: the optional coding challenge
+    # and rejections.
+    columns = stages + [storage.STATUS_CODING_CHALLENGE, storage.STATUS_REJECTED]
+    labels = [SHORT_LABELS[s] for s in columns[:-1]] + ["Rejected"]
     x = list(range(len(columns)))
 
     # Style is assigned by CSV row order, so an application keeps its look
     # as others are added. Stacking puts the applications that got furthest
     # at the bottom, so each one forms a flat band that ends where it stopped.
     rows = [row for _, row in df.iterrows()]
+    round_formats = {
+        (row["id"], status): row[storage.ROUND_TAG_COLUMNS[status][0]]
+        for row in rows for status in storage.ROUNDS
+    }
     styles = {
         row["id"]: (CATEGORICAL[i % len(CATEGORICAL)], HATCHES[(i // len(CATEGORICAL)) % len(HATCHES)])
         for i, row in enumerate(rows)
@@ -183,22 +206,31 @@ def build_progress_figure(df: pd.DataFrame) -> Figure:
         for col_idx, status in enumerate(columns):
             if not _reached(row, status):
                 continue
+            outline = FORMAT_LINESTYLES.get(round_formats.get((row["id"], status), ""))
             (patch,) = ax.bar(
-                col_idx, 1, bottom=values[col_idx], width=0.62, color=color,
+                col_idx, 1, bottom=values[col_idx], width=0.62,
+                color=to_rgba(color, FORMAT_TINT_ALPHA) if outline else color,
                 hatch=hatch, hatchcolor=SURFACE, edgecolor=SURFACE, linewidth=1.5,
                 label=label, zorder=3,
             )
+            if outline:
+                # Inset so the outline doesn't merge into the segments around it.
+                ax.bar(
+                    col_idx, 0.84, bottom=values[col_idx] + 0.08, width=0.54, fill=False,
+                    edgecolor=color, linestyle=outline, linewidth=1.6, zorder=4,
+                )
             label = "_nolegend_"  # one legend entry per application
             values[col_idx] += 1
-            segments.append((patch, _row_tooltip(row)))
+            segments.append((patch, _row_tooltip(row, status)))
     funnel_values = values[: len(stages)]
 
-    # Step connectors between consecutive funnel bars (Rejected sits apart,
-    # as an exit stat rather than a forward pipeline stage).
-    for i in range(len(funnel_values) - 1):
+    # Step connectors between consecutive funnel bars (the side stages sit
+    # apart, outside the forward pipeline).
+    linked = [i for i, s in enumerate(stages) if s != assessment]
+    for a, b in zip(linked, linked[1:]):
         ax.plot(
-            [i + 0.31, i + 1 - 0.31],
-            [funnel_values[i], funnel_values[i + 1]],
+            [a + 0.31, b - 0.31],
+            [funnel_values[a], funnel_values[b]],
             color=BASELINE, linewidth=1.2, zorder=2,
         )
 
@@ -221,6 +253,18 @@ def build_progress_figure(df: pd.DataFrame) -> Figure:
     ax.set_ylim(0, max_val * 1.18 if max_val else 1)
     _style_bar_axes(ax)
 
+    if any(round_formats.values()):
+        key = ax.legend(
+            handles=[
+                Patch(facecolor=INK_MUTED, label="On-site / not set"),
+                *(Patch(facecolor=to_rgba(INK_MUTED, FORMAT_TINT_ALPHA), edgecolor=INK_MUTED,
+                        linestyle=style, linewidth=1.2, label=fmt)
+                  for fmt, style in FORMAT_LINESTYLES.items()),
+            ],
+            loc="lower right", bbox_to_anchor=(1.0, 1.0), ncol=3, frameon=False,
+            fontsize=7.5, labelcolor=INK_SECONDARY, handlelength=1.6, borderaxespad=0.3,
+        )
+        ax.add_artist(key)  # keep it when the application legend is added below
     if rows:
         legend_rows = 18
         ax.legend(

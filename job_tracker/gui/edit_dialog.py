@@ -17,7 +17,7 @@ class EditApplicationDialog(tk.Toplevel):
         self.on_saved = on_saved
         self.on_deleted = on_deleted
         self.title(f"Edit Application -- {app_row.get('job_title', '')}")
-        self.geometry("640x780")
+        self.geometry("760x860")
         self.minsize(560, 560)
         self.transient(parent)
         self.grab_set()
@@ -74,25 +74,43 @@ class EditApplicationDialog(tk.Toplevel):
         ).pack(anchor="w", padx=10)
         dates_frame = ttk.Frame(self)
         dates_frame.pack(fill="x", padx=10, pady=(4, 0))
-        dates_frame.columnconfigure(0, weight=1)
-        dates_frame.columnconfigure(1, weight=1)
 
         self.date_vars: dict[str, tk.StringVar] = {}
-        for i, status in enumerate(storage.STATUS_CHOICES):
+        self.tag_vars: dict[str, tk.StringVar] = {}  # round format/focus column -> value
+        for r, status in enumerate(storage.STATUS_CHOICES):
             col_field = storage.STATUS_DATE_COLUMNS[status]
             var = tk.StringVar(value=dates.to_display(row.get(col_field, "")))
             self.date_vars[status] = var
-            r, c = divmod(i, 2)
-            cell = ttk.Frame(dates_frame)
-            cell.grid(row=r, column=c, sticky="ew", padx=(0, 12), pady=3)
-            ttk.Label(cell, text=status, width=20).pack(side="left")
-            entry = ttk.Entry(cell, textvariable=var, width=12)
-            entry.pack(side="left")
+            label = f"{status} (optional)" if status == storage.STATUS_CODING_CHALLENGE else status
+            ttk.Label(dates_frame, text=label).grid(row=r, column=0, sticky="w", pady=3)
+            entry = ttk.Entry(dates_frame, textvariable=var, width=12)
+            entry.grid(row=r, column=1, padx=(8, 0), pady=3)
             dates.enable_today_shortcut(entry)
             ttk.Button(
-                cell, text="Today", width=6,
+                dates_frame, text="Today", width=6,
                 command=lambda v=var: v.set(dates.today_display()),
-            ).pack(side="left", padx=(4, 0))
+            ).grid(row=r, column=2, padx=(4, 0), pady=3)
+
+            if status in storage.ROUND_TAG_COLUMNS:
+                tags = ttk.Frame(dates_frame)
+                tags.grid(row=r, column=3, sticky="w", padx=(12, 0))
+                format_col, focus_col = storage.ROUND_TAG_COLUMNS[status]
+                for caption, col, choices in (("Format", format_col, storage.ROUND_FORMATS),
+                                              ("Focus", focus_col, storage.ROUND_FOCUSES)):
+                    tag_var = tk.StringVar(value=row.get(col, ""))
+                    self.tag_vars[col] = tag_var
+                    ttk.Label(tags, text=caption).pack(side="left", padx=(0, 4))
+                    ttk.Combobox(
+                        tags, textvariable=tag_var, values=["", *choices], state="readonly", width=13,
+                    ).pack(side="left", padx=(0, 10))
+            elif status == storage.STATUS_CODING_CHALLENGE:
+                self.coding_position = ttk.Label(dates_frame, foreground="#52514e")
+                self.coding_position.grid(row=r, column=3, sticky="w", padx=(12, 0))
+
+        # Keep "-> after 1st Round" in step with the dates as they are typed.
+        for status in [*storage.ROUNDS, storage.STATUS_CODING_CHALLENGE]:
+            self.date_vars[status].trace_add("write", lambda *_: self._update_coding_position())
+        self._update_coding_position()
 
         ttk.Separator(self).pack(fill="x", padx=10, pady=8)
 
@@ -118,6 +136,17 @@ class EditApplicationDialog(tk.Toplevel):
         ttk.Button(btn_row, text="Delete", command=self._delete).pack(side="left")
         ttk.Button(btn_row, text="Cancel", command=self.destroy).pack(side="right")
         ttk.Button(btn_row, text="Save Changes", command=self._save).pack(side="right", padx=(0, 6))
+
+    def _update_coding_position(self):
+        # Only complete dates count; one still being typed is left out.
+        row = {
+            storage.STATUS_DATE_COLUMNS[status]: dates.to_iso(value)
+            if value and dates.is_valid_display_date(value) else ""
+            for status, var in self.date_vars.items()
+            for value in [var.get().strip()]
+        }
+        position = storage.coding_challenge_position(row)
+        self.coding_position.configure(text=f"\u2192 {position}" if position else "")
 
     def _save(self):
         for status, var in self.date_vars.items():
@@ -145,6 +174,8 @@ class EditApplicationDialog(tk.Toplevel):
         }
         for status, var in self.date_vars.items():
             updates[storage.STATUS_DATE_COLUMNS[status]] = dates.to_iso(var.get().strip())
+        for col, var in self.tag_vars.items():
+            updates[col] = var.get()
 
         storage.update_application(self.app_id, updates)
         self.on_saved()
