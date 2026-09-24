@@ -6,6 +6,7 @@ from tkinter import messagebox, ttk
 
 from .. import storage
 from . import dates
+from .add_dialog import SALARY_HINT
 from .company_field import CompanyCombobox
 
 
@@ -16,7 +17,7 @@ class EditApplicationDialog(tk.Toplevel):
         self.on_saved = on_saved
         self.on_deleted = on_deleted
         self.title(f"Edit Application -- {app_row.get('job_title', '')}")
-        self.geometry("640x740")
+        self.geometry("640x780")
         self.minsize(560, 560)
         self.transient(parent)
         self.grab_set()
@@ -44,17 +45,24 @@ class EditApplicationDialog(tk.Toplevel):
         self.url_var = tk.StringVar(value=row.get("url", ""))
         ttk.Entry(form, textvariable=self.url_var).grid(row=3, column=1, sticky="ew", pady=4)
 
-        ttk.Label(form, text="Current status").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Label(form, text="Salary").grid(row=4, column=0, sticky="w", pady=4)
+        salary_row = ttk.Frame(form)
+        salary_row.grid(row=4, column=1, sticky="ew", pady=4)
+        self.salary_var = tk.StringVar(value=row.get("salary", ""))
+        ttk.Entry(salary_row, textvariable=self.salary_var, width=24).pack(side="left")
+        ttk.Label(salary_row, text=SALARY_HINT).pack(side="left", padx=(6, 0))
+
+        ttk.Label(form, text="Current status").grid(row=5, column=0, sticky="w", pady=4)
         self.status_var = tk.StringVar(value=row.get("status", storage.STATUS_APPLIED))
         status_combo = ttk.Combobox(
             form, textvariable=self.status_var, values=storage.STATUS_CHOICES, state="readonly"
         )
-        status_combo.grid(row=4, column=1, sticky="ew", pady=4)
+        status_combo.grid(row=5, column=1, sticky="ew", pady=4)
 
-        ttk.Label(form, text="Last update").grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Label(form, text="Last update").grid(row=6, column=0, sticky="w", pady=4)
         last_update = dates.to_display(row.get("last_update", "")) or "--"
         ttk.Label(form, text=f"{last_update}  (set automatically on save)").grid(
-            row=5, column=1, sticky="w", pady=4
+            row=6, column=1, sticky="w", pady=4
         )
 
         ttk.Separator(self).pack(fill="x", padx=10, pady=8)
@@ -130,6 +138,7 @@ class EditApplicationDialog(tk.Toplevel):
             "company": self.company_var.get().strip(),
             "contact_email": contact_email,
             "url": self.url_var.get().strip(),
+            "salary": self.salary_var.get().strip(),
             "status": self.status_var.get(),
             "notes": self.notes_var.get().strip(),
             "job_description": self.desc_text.get("1.0", "end").strip(),

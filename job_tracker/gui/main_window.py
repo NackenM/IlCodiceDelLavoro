@@ -17,6 +17,7 @@ LIST_COLUMNS = [
     ("job_title", "Job Title", 200),
     ("company", "Company", 140),
     ("status", "Status", 150),
+    ("salary", "Salary", 110),
     ("contact_email", "Contact", 190),
     ("date_applied", "Date Applied", 95),
     ("last_update", "Last Update", 95),
@@ -104,6 +105,11 @@ class MainWindow(tk.Tk):
         blank = [r for r in rows if not r[key]]
         if key == "status":
             sort_value = lambda r: STATUS_ORDER.get(r[key], len(STATUS_ORDER))  # pipeline order
+        elif key == "salary":
+            # By amount; salaries without a number ("negotiable") go last too.
+            blank = [r for r in filled if storage.salary_amount(r[key]) is None] + blank
+            filled = [r for r in filled if storage.salary_amount(r[key]) is not None]
+            sort_value = lambda r: storage.salary_amount(r[key])
         else:
             # Dates are stored as ISO, so plain string order is chronological.
             sort_value = lambda r: r[key].casefold()
@@ -150,6 +156,10 @@ class MainWindow(tk.Tk):
         EditApplicationDialog(self, row.iloc[0].to_dict(), on_saved=self.refresh, on_deleted=self.refresh)
 
 
+STOP_SIGNALS = {getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT")
+                if hasattr(signal, name)}
+
+
 def _close_on_signals(app: tk.Tk) -> None:
     """Close the window cleanly on Ctrl+C / kill (e.g. PyCharm's Stop or Rerun).
 
@@ -158,9 +168,8 @@ def _close_on_signals(app: tk.Tk) -> None:
     GIL and abort the interpreter. Re-registering Python handlers after Tk is
     created replaces it, so the shutdown runs on the main thread instead.
     """
-    for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"):
-        if hasattr(signal, name):
-            signal.signal(getattr(signal, name), lambda *_: app.destroy())
+    for sig in STOP_SIGNALS:
+        signal.signal(sig, lambda *_: app.destroy())
 
     # mainloop only checks for pending Python signals between Tk events, so
     # keep a steady trickle of events coming while the app sits idle.
@@ -172,6 +181,11 @@ def _close_on_signals(app: tk.Tk) -> None:
 
 def main():
     storage.ensure_csv()
+    # Hold stop signals back while the window is built: until our handlers
+    # replace Tk's, a signal would hit Tk's handler mid-startup. A signal that
+    # arrives meanwhile stays pending and is handled once they are unblocked.
+    signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
     app = MainWindow()
     _close_on_signals(app)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, STOP_SIGNALS)
     app.mainloop()

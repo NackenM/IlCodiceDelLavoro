@@ -58,11 +58,15 @@ COLUMNS = [
     "contact_email",
     "url",
     "job_description",
+    "salary",
     "status",
     "notes",
     "last_update",
     *STATUS_DATE_COLUMNS.values(),
 ]
+
+# First amount in a free-text salary: "65.000", "65,000", "65 000", "72.5k".
+_SALARY_NUMBER_RE = re.compile(r"\d{1,3}(?:[.,\s]\d{3})+|\d+(?:[.,]\d+)?")
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -77,6 +81,23 @@ def normalize_emails(raw: str) -> str:
         if not _EMAIL_RE.match(address):
             raise ValueError(address)
     return ", ".join(addresses)
+
+
+def salary_amount(text: str) -> float | None:
+    """First amount in a free-text salary, for sorting, e.g. "65-75k €" ->
+    65000, "€70.000 / year" -> 70000; None if there is no number. The period
+    (monthly / yearly) is not interpreted."""
+    match = _SALARY_NUMBER_RE.search(text)
+    if not match:
+        return None
+    number = match.group()
+    if re.fullmatch(r"\d{1,3}(?:[.,\s]\d{3})+", number):
+        amount = float(re.sub(r"[.,\s]", "", number))  # thousands separators
+    else:
+        amount = float(number.replace(",", "."))
+    if amount < 1000 and "k" in text.lower():
+        amount *= 1000
+    return amount
 
 
 def ensure_csv() -> None:

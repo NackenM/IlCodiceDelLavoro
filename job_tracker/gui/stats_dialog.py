@@ -13,6 +13,12 @@ from .. import chart, outcomes
 
 VIEW_SUCCESS = "Success rate"
 VIEW_COMPANY = "By company"
+VIEW_COMPANY_SHARE = "Company share"
+# Views that show every outcome, so the target filter does not apply.
+COMPANY_VIEWS = {
+    VIEW_COMPANY: chart.build_company_figure,
+    VIEW_COMPANY_SHARE: chart.build_company_share_figure,
+}
 
 
 class StatisticsDialog(tk.Toplevel):
@@ -31,7 +37,7 @@ class StatisticsDialog(tk.Toplevel):
         ttk.Label(filters, text="View").pack(side="left")
         self.view_var = tk.StringVar(value=VIEW_SUCCESS)
         view_combo = ttk.Combobox(
-            filters, textvariable=self.view_var, values=[VIEW_SUCCESS, VIEW_COMPANY],
+            filters, textvariable=self.view_var, values=[VIEW_SUCCESS, *COMPANY_VIEWS],
             state="readonly", width=14,
         )
         view_combo.pack(side="left", padx=(6, 16))
@@ -70,9 +76,9 @@ class StatisticsDialog(tk.Toplevel):
         if self.canvas is not None:
             self.canvas.get_tk_widget().destroy()
         df = outcomes.filter_by_time_range(self.df, outcomes.TIME_RANGES[self.range_var.get()])
-        if self.view_var.get() == VIEW_COMPANY:
-            self.target_combo.configure(state="disabled")  # the company view shows every outcome
-            figure = chart.build_company_figure(df)
+        if self.view_var.get() in COMPANY_VIEWS:
+            self.target_combo.configure(state="disabled")
+            figure = COMPANY_VIEWS[self.view_var.get()](df)
         else:
             self.target_combo.configure(state="readonly")
             figure = chart.build_success_donut_figure(df, self.target_var.get())

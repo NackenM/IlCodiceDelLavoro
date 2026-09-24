@@ -10,12 +10,14 @@ from .. import scraper, storage
 from . import dates
 from .company_field import CompanyCombobox
 
+SALARY_HINT = "e.g. 65-75k € / year"
+
 
 class AddApplicationDialog(tk.Toplevel):
     def __init__(self, parent, on_saved):
         super().__init__(parent)
         self.title("Add Application")
-        self.geometry("640x620")
+        self.geometry("640x660")
         self.minsize(560, 520)
         self.on_saved = on_saved
         self.transient(parent)
@@ -72,6 +74,13 @@ class AddApplicationDialog(tk.Toplevel):
         ttk.Label(date_row, text=f"{dates.DISPLAY_HINT}  (type {dates.TODAY_TOKEN} for today)").pack(
             side="left", padx=(6, 0)
         )
+
+        ttk.Label(form, text="Salary").grid(row=4, column=0, sticky="w", pady=4)
+        salary_row = ttk.Frame(form)
+        salary_row.grid(row=4, column=1, sticky="ew", pady=4)
+        self.salary_var = tk.StringVar()
+        ttk.Entry(salary_row, textvariable=self.salary_var, width=24).pack(side="left")
+        ttk.Label(salary_row, text=SALARY_HINT).pack(side="left", padx=(6, 0))
 
         ttk.Label(
             self, text="Job description  (parsed content is a preview -- edit freely before saving)"
@@ -157,6 +166,7 @@ class AddApplicationDialog(tk.Toplevel):
             "contact_email": contact_email,
             "url": self.url_var.get().strip(),
             "job_description": self.desc_text.get("1.0", "end").strip(),
+            "salary": self.salary_var.get().strip(),
             "status": storage.STATUS_APPLIED,
             "notes": "",
             "date_applied": dates.to_iso(date_applied),

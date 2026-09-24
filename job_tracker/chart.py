@@ -347,6 +347,68 @@ def build_company_figure(df: pd.DataFrame, max_companies: int = COMPANY_BARS_MAX
     return fig
 
 
+def build_company_share_figure(df: pd.DataFrame, max_slices: int = len(CATEGORICAL) - 1) -> Figure:
+    """Donut of each company's share of all applications; companies past
+    `max_slices` are folded into one "Other" slice."""
+    fig, ax = _new_axes(figsize=(6.4, 4.6))
+    groups = outcomes.group_by_company(df)
+    total = len(df)
+
+    if not total:
+        ax.text(0.5, 0.5, "No applications in this time range", ha="center", va="center",
+                fontsize=10, color=INK_MUTED, transform=ax.transAxes)
+        ax.axis("off")
+        return fig
+
+    # (label, application count, color, tooltip lines). Applications without
+    # a company get their own neutral slice rather than counting as a company.
+    named = [g for g in groups if g[0] != outcomes.NO_COMPANY]
+    unnamed = [apps for company, apps in groups if company == outcomes.NO_COMPANY]
+    shown, rest = named[:max_slices], named[max_slices:]
+    if len(rest) == 1:  # a lone company reads better by name than as "Other"
+        shown, rest = shown + rest, []
+    slices = [
+        (company, len(apps), CATEGORICAL[i % len(CATEGORICAL)],
+         [r["job_title"] or r["id"] for r, _ in apps])
+        for i, (company, apps) in enumerate(shown)
+    ]
+    if rest:
+        slices.append((
+            f"Other ({len(rest)} compan{'ies' if len(rest) != 1 else 'y'})",
+            sum(len(apps) for _, apps in rest), BASELINE,
+            [f"{company}  ({len(apps)})" for company, apps in rest],
+        ))
+    for apps in unnamed:
+        slices.append((outcomes.NO_COMPANY, len(apps), GRIDLINE, [r["job_title"] or r["id"] for r, _ in apps]))
+
+    wedges, _ = ax.pie(
+        [count for _, count, _, _ in slices], colors=[color for _, _, color, _ in slices],
+        startangle=90, counterclock=False,
+        wedgeprops={"width": 0.36, "edgecolor": SURFACE, "linewidth": 2},
+    )
+    ax.legend(
+        wedges, [f"{label}  {count} ({count / total:.0%})" for label, count, _, _ in slices],
+        loc="center left", bbox_to_anchor=(1.0, 0.5), frameon=False,
+        fontsize=8, labelcolor=INK_SECONDARY, handlelength=1.2,
+    )
+    segments = [
+        (wedge, f"{label}  —  {count} of {total} ({count / total:.0%})\n"
+                + "\n".join(f"• {line}" for line in lines))
+        for wedge, (label, count, _, lines) in zip(wedges, slices)
+    ]
+
+    ax.text(0, 0.08, str(len(named)), ha="center", va="center", fontsize=28, color=INK_PRIMARY)
+    ax.text(0, -0.2, f"compan{'ies' if len(named) != 1 else 'y'} · {total} applications",
+            ha="center", va="center", fontsize=8.5, color=INK_SECONDARY)
+    ax.set_title("Share of applications by company", fontsize=11, color=INK_PRIMARY, loc="left", pad=12)
+    ax.set_aspect("equal")
+    _attach_hover(fig, ax, segments)
+
+    fig.tight_layout()
+    fig.subplots_adjust(right=0.6)  # room for the legend beside the donut
+    return fig
+
+
 def _attach_hover(fig: Figure, ax, segments) -> None:
     """Show a tooltip for the bar segment under the mouse; `segments` holds
     (patch, tooltip text) pairs."""
