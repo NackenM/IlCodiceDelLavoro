@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 from .. import charts
 from ..companies import known_companies
 from ..model import Application
-from ..repository import ApplicationRepository
+from ..repository import DEFAULT_CSV_PATH, ApplicationRepository
 from .add_dialog import AddApplicationDialog
 from .application_list import ApplicationList
 from .chart_panel import ChartPanel
@@ -121,8 +122,8 @@ class MainWindow(tk.Tk):
         TimelineDialog(self, selected)
 
 
-def main() -> None:
+def main(csv_path: Path = DEFAULT_CSV_PATH) -> None:
     with stop_signals_held_back():
-        window = MainWindow(ApplicationRepository())
+        window = MainWindow(ApplicationRepository(csv_path))
         close_on_stop_signals(window)
     window.mainloop()

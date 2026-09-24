@@ -53,8 +53,8 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs matplotlib (charts), requests, beautifulsoup4 and
-lxml (parsing job postings).
+`requirements.txt` installs matplotlib (charts), click (command line),
+requests, beautifulsoup4 and lxml (parsing job postings).
 
 ### Development setup (optional)
 
@@ -76,15 +76,27 @@ The hooks expect the virtual environment at `.venv/`.
 ## Running the app
 
 ```bash
-python run.py
+python run.py [CSV_PATH]
 ```
 
-(or `.venv/bin/python run.py` without activating the environment).
+(or `.venv/bin/python run.py [CSV_PATH]` without activating the environment).
 
-The app reads and writes `data/applications.csv`. The repository ships with 22
-example applications so you can explore every view straight away. To start
-with your own data, move or delete that file; it is created again with the
-first application you save.
+`CSV_PATH` is the file your applications are read from and saved to:
+
+```bash
+python run.py                                # bundled example data
+python run.py ~/Documents/applications.csv   # your own file
+python run.py --help                         # show usage
+```
+
+- **Without a path**, the app opens `data/applications.csv`, which ships with
+  22 example applications so you can explore every view straight away.
+- **With a path to a file that does not exist yet**, the app starts empty and
+  creates the file (and any missing folders) when you save your first
+  application.
+
+Keeping your own data in a file outside the repository keeps it separate
+from the example data.
 
 ## Using the app
 
@@ -201,7 +213,8 @@ total duration.
 
 ## Data file
 
-All data lives in `data/applications.csv`, one row per application. Dates
+All data lives in the CSV file given on the command line
+(`data/applications.csv` by default), one row per application. Dates
 are stored as ISO dates (`YYYY-MM-DD`), while the app shows and accepts
 `DD.MM.YYYY`. You can edit the file in a spreadsheet program while the app is
 closed, or press **Refresh** afterwards.
@@ -212,7 +225,7 @@ anything in `data/`, so your own entries do not end up in git by accident.
 ## Project layout
 
 ```
-run.py                 entry point
+run.py                 entry point and command line (click)
 job_tracker/
   model.py             Application dataclass
   stages.py            stages, round formats and focuses
@@ -222,6 +235,6 @@ job_tracker/
   charts/              matplotlib figures
   gui/                 Tkinter windows and dialogs
 tests/                 pytest suite
-data/applications.csv  your applications (example data included)
+data/applications.csv  example data, used when no CSV_PATH is given
 docs/screenshots/      images used in this README
 ```
