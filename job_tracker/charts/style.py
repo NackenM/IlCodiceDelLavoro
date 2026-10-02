@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.transforms import Bbox
 
 from ..outcomes import Outcome
 from ..stages import Stage
@@ -143,7 +144,11 @@ def attach_hover(
     figure: Figure, axes: Axes, targets: Sequence[HoverTarget]
 ) -> None:
     """Show the tooltip of the first target under the mouse; earlier
-    targets win where they overlap."""
+    targets win where they overlap.
+
+    Moving the tooltip only repaints the area it covered and now covers,
+    on top of a copy of the chart taken after every full draw, so it stays
+    quick on charts too large to redraw at mouse speed."""
     tooltip = axes.annotate(
         "",
         xy=(0, 0),
@@ -153,8 +158,44 @@ def attach_hover(
         color=INK_PRIMARY,
         zorder=10,
         bbox={"boxstyle": "round,pad=0.4", "fc": SURFACE, "ec": BASELINE},
+        animated=True,  # left out of full draws, painted by `repaint`
     )
     tooltip.set_visible(False)
+    background = None
+    shown_area: Bbox | None = None  # where the tooltip is painted now
+
+    def repaint() -> None:
+        nonlocal shown_area
+        canvas = figure.canvas
+        dirty = []
+        if shown_area is not None:
+            # Restoring the whole copy is a quick memory copy; only the
+            # dirty area is handed on to the screen.
+            canvas.restore_region(background)
+            dirty.append(shown_area)
+            shown_area = None
+        if tooltip.get_visible():
+            axes.draw_artist(tooltip)
+            shown_area = Bbox.intersection(
+                Bbox.union(
+                    [
+                        tooltip.get_window_extent(),
+                        tooltip.get_bbox_patch().get_window_extent(),
+                    ]
+                ).padded(2),
+                figure.bbox,
+            )
+            if shown_area is not None:
+                dirty.append(shown_area)
+        if dirty:
+            canvas.blit(Bbox.union(dirty))
+
+    def on_draw(_event) -> None:
+        nonlocal background, shown_area
+        background = figure.canvas.copy_from_bbox(figure.bbox)
+        shown_area = None
+        if tooltip.get_visible():
+            repaint()
 
     def on_mouse_move(event) -> None:
         hovered = None
@@ -165,7 +206,8 @@ def attach_hover(
         if hovered is None:
             if tooltip.get_visible():
                 tooltip.set_visible(False)
-                figure.canvas.draw_idle()
+                if background is not None:
+                    repaint()
             return
         tooltip.set_text(hovered.tooltip)
         tooltip.xy = (event.xdata, event.ydata)
@@ -174,6 +216,10 @@ def attach_hover(
         tooltip.set_position((-12, 12) if on_right_half else (12, 12))
         tooltip.set_horizontalalignment("right" if on_right_half else "left")
         tooltip.set_visible(True)
-        figure.canvas.draw_idle()
+        if background is None:  # not drawn yet
+            figure.canvas.draw_idle()
+        else:
+            repaint()
 
+    figure.canvas.mpl_connect("draw_event", on_draw)
     figure.canvas.mpl_connect("motion_notify_event", on_mouse_move)

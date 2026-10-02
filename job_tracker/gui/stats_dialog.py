@@ -21,10 +21,11 @@ from .chart_panel import ChartPanel
 from .form_widgets import HINT_COLOR
 
 SUCCESS_RATE_VIEW = "Success rate"
-# Views that show every outcome, so the target filter does not apply.
-COMPANY_VIEWS: dict[str, Callable[[Sequence[Application]], Figure]] = {
+# Views the target filter does not apply to.
+UNTARGETED_VIEWS: dict[str, Callable[[Sequence[Application]], Figure]] = {
     "By company": charts.build_company_outcomes_figure,
     "Company share": charts.build_company_share_figure,
+    "Reply times": charts.build_reply_times_figure,
 }
 
 
@@ -40,7 +41,7 @@ class StatisticsDialog(tk.Toplevel):
         filters = ttk.Frame(self)
         filters.pack(fill="x", padx=10, pady=8)
         self.view, _ = self._add_choice(
-            filters, "View", [SUCCESS_RATE_VIEW, *COMPANY_VIEWS], width=14
+            filters, "View", [SUCCESS_RATE_VIEW, *UNTARGETED_VIEWS], width=14
         )
         self.target, self.target_choice = self._add_choice(
             filters, "Target", list(SUCCESS_TARGETS), width=28
@@ -81,10 +82,10 @@ class StatisticsDialog(tk.Toplevel):
             self.applications,
             APPLIED_WITHIN_CHOICES[self.applied_within.get()],
         )
-        build_company_figure = COMPANY_VIEWS.get(self.view.get())
-        if build_company_figure:
+        build_untargeted_figure = UNTARGETED_VIEWS.get(self.view.get())
+        if build_untargeted_figure:
             self.target_choice.configure(state="disabled")
-            figure = build_company_figure(shown)
+            figure = build_untargeted_figure(shown)
         else:
             self.target_choice.configure(state="readonly")
             figure = charts.build_success_rate_figure(shown, self.target.get())

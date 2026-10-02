@@ -1,11 +1,13 @@
 """Timeline: one row per application, a marker per stage reached, the days
 between consecutive stages, and a dashed tail up to today while open; a
-red line marks today."""
+red line marks today. The title and dates sit in a separate header figure,
+so they stay in view while the rows scroll."""
 
 from __future__ import annotations
 
 import textwrap
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import pairwise
 
@@ -25,6 +27,7 @@ from .style import (
     SURFACE,
     TEXT_BODY,
     TEXT_SMALL,
+    TEXT_TITLE,
     TITLE_STYLE,
     HoverTarget,
     attach_hover,
@@ -65,12 +68,20 @@ CHARACTER_WIDTH_SHARE = 0.013
 # Marker labels go on the first of these lines below the marker where they
 # fit next to the labels already there.
 LABEL_LINES = 3
-LABEL_LINE_HEIGHT = 0.17
+LABEL_LINE_HEIGHT = 0.22
 # Room left of the earliest marker, as a share of the time axis, so its
 # centered label stays clear of the row labels; and the gap in points
 # between those row labels and the plot.
 LEFT_MARGIN_SHARE = 0.07
 ROW_LABEL_PAD = 14
+# The figure grows by this much per application, so many of them make a
+# tall figure to scroll through rather than squeezed rows.
+ROW_HEIGHT_INCHES = 0.62
+FRAME_HEIGHT_INCHES = 0.5
+# The fixed strip above: the title, the dates below it, and under those a
+# short stretch of plot that carries the today label.
+HEADER_HEIGHT_INCHES = 0.95
+HEADER_PLOT_HEIGHT_INCHES = 0.25
 DASHED = (0, (3, 2))
 TODAY_COLOR = OUTCOME_COLORS[Outcome.REJECTED_AFTER_STAGE]
 # Row labels wrap at this many characters: the company on its own line,
@@ -216,33 +227,97 @@ def _draw_summary(
     )
 
 
-def _draw_today(axes: Axes, today: date) -> None:
+@dataclass(frozen=True)
+class TimelineFigures:
+    """The timeline split in two: the rows in `body`, which may grow taller
+    than the window and scroll, and the title and dates in `header`, to
+    stay in view above it."""
+
+    header: Figure
+    body: Figure
+
+
+def _draw_dates_header(
+    header: Figure, body: Figure, body_axes: Axes, title: str, today: date
+) -> None:
+    """The body's dates, title and today marker in `header`, kept lined up
+    with the body's plot as that is laid out anew."""
+    axes = header.add_axes(
+        (0, 0, 1, HEADER_PLOT_HEIGHT_INCHES / header.get_figheight())
+    )
+    axes.set_facecolor(SURFACE)
+    axes.set_xlim(body_axes.get_xlim())
+    axes.xaxis.set_major_formatter(body_axes.xaxis.get_major_formatter())
+    axes.set_yticks([])
+    axes.grid(axis="x", color=GRIDLINE, linewidth=0.8, zorder=0)
+    for spine in axes.spines.values():
+        spine.set_visible(False)
+    axes.tick_params(
+        axis="x",
+        colors=INK_SECONDARY,
+        length=0,
+        labelsize=TEXT_BODY,
+        top=True,
+        labeltop=True,
+        bottom=False,
+        labelbottom=False,
+    )
+    axes.set_title(title, pad=10, **TITLE_STYLE)
+    # The today line runs on from the body, labelled up here, where it
+    # stays visible.
     axes.axvline(today, color=TODAY_COLOR, linewidth=1.2, zorder=1)
     axes.annotate(
         "Today",
-        (today, 1.0),
+        (today, 0.5),
         xycoords=("data", "axes fraction"),
-        xytext=(0, 3),
+        xytext=(4, 0),
         textcoords="offset points",
-        ha="center",
-        va="bottom",
+        ha="left",
+        va="center",
         fontsize=TEXT_SMALL,
         color=TODAY_COLOR,
     )
 
+    def line_up_with_body(_event) -> None:
+        left = body_axes.bbox.x0 / header.bbox.width
+        width = body_axes.bbox.width / header.bbox.width
+        x0, y0, old_width, height = axes.get_position().bounds
+        if (round(x0, 4), round(old_width, 4)) != (
+            round(left, 4),
+            round(width, 4),
+        ):
+            axes.set_position((left, y0, width, height))
+            header.canvas.draw_idle()
 
-def build_timeline_figure(
+    body.canvas.mpl_connect("draw_event", line_up_with_body)
+
+
+def build_timeline_figures(
     applications: Sequence[Application], today: date | None = None
-) -> Figure:
+) -> TimelineFigures:
     today = today or date.today()
-    figure, axes = new_figure(9, 1.4 + 0.62 * max(len(applications), 1))
+    title = f"Timeline  ·  {plural(len(applications), 'application')}"
+    header = Figure(
+        figsize=(9, HEADER_HEIGHT_INCHES), dpi=100, facecolor=SURFACE
+    )
+    body, axes = new_figure(
+        9, FRAME_HEIGHT_INCHES + ROW_HEIGHT_INCHES * max(len(applications), 1)
+    )
     events_per_application = [a.stage_events() for a in applications]
     all_days = [e.day for events in events_per_application for e in events]
     if not all_days:
+        header.text(
+            0.01,
+            0.5,
+            title,
+            va="center",
+            fontsize=TEXT_TITLE,
+            color=TITLE_STYLE["color"],
+        )
         show_empty_message(
             axes, "The selected applications have no stage dates yet"
         )
-        return figure
+        return TimelineFigures(header, body)
 
     start = min(all_days)
     end = max([*all_days, today])
@@ -275,7 +350,7 @@ def build_timeline_figure(
             axes, y, application, events, span_days
         )
 
-    _draw_today(axes, today)
+    axes.axvline(today, color=TODAY_COLOR, linewidth=1.2, zorder=1)
     axes.set_yticks(range(len(applications)))
     axes.set_yticklabels(
         [row_label(a) for a in applications],
@@ -291,18 +366,16 @@ def build_timeline_figure(
     axes.xaxis.set_major_formatter(DateFormatter("%d.%m."))
     axes.grid(axis="x", color=GRIDLINE, linewidth=0.8, zorder=0)
     axes.set_axisbelow(True)
-    for name, spine in axes.spines.items():
-        spine.set_visible(name == "bottom")
-        spine.set_color(BASELINE)
+    for spine in axes.spines.values():
+        spine.set_visible(False)
     axes.tick_params(colors=INK_SECONDARY, length=0, labelsize=TEXT_BODY)
     axes.tick_params(axis="y", pad=ROW_LABEL_PAD)
-    axes.set_title(
-        f"Timeline  ·  {plural(len(applications), 'application')}",
-        pad=12,
-        **TITLE_STYLE,
-    )
+    # The dates are in the header; the gridlines carry them down here.
+    axes.tick_params(axis="x", labelbottom=False)
     # Markers win over the gap they sit on.
-    attach_hover(figure, axes, marker_targets + gap_targets)
+    attach_hover(body, axes, marker_targets + gap_targets)
 
-    figure.tight_layout()
-    return figure
+    # Laid out again on every draw, as the window resizes the figure.
+    body.set_layout_engine("tight")
+    _draw_dates_header(header, body, axes, title, today)
+    return TimelineFigures(header, body)

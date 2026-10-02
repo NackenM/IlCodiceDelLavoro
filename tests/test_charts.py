@@ -1,7 +1,9 @@
 """Every chart builds, including edge cases, and the step logic is right."""
 
 import pytest
+from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.dates import date2num
 
 from job_tracker import charts
 from job_tracker.charts.progress import LEGEND_MAX_APPLICATIONS, shown_stages
@@ -47,15 +49,20 @@ def render(figure):
 def test_every_chart_renders(applications):
     render(charts.build_outcome_waterfall_figure(applications, TODAY))
     render(charts.build_progress_figure(applications))
-    render(charts.build_timeline_figure(applications, TODAY))
+    timeline = charts.build_timeline_figures(applications, TODAY)
+    render(timeline.header)
+    render(timeline.body)
     render(charts.build_company_outcomes_figure(applications, TODAY))
     render(charts.build_company_share_figure(applications))
+    render(charts.build_reply_times_figure(applications))
     for target in SUCCESS_TARGETS:
         render(charts.build_success_rate_figure(applications, target, TODAY))
 
 
 def test_timeline_of_an_application_without_dates_renders():
-    render(charts.build_timeline_figure([make_application()], TODAY))
+    timeline = charts.build_timeline_figures([make_application()], TODAY)
+    render(timeline.header)
+    render(timeline.body)
 
 
 def test_waterfall_has_a_step_for_every_round_even_at_zero():
@@ -168,3 +175,33 @@ def test_timeline_row_label_falls_back_to_the_id():
         row_label(make_application(id="ab12", company="", job_title=""))
         == "ab12"
     )
+
+
+def test_hover_shows_and_hides_the_tooltip():
+    figure = charts.build_timeline_figures(SAMPLE[:1], TODAY).body
+    canvas = FigureCanvasAgg(figure)
+    canvas.draw()
+    (axes,) = figure.axes
+    (marker, *_) = [line for line in axes.lines if line.get_marker() == "o"]
+    x, y = axes.transData.transform(
+        (date2num(marker.get_xdata()[0]), marker.get_ydata()[0])
+    )
+    tooltip = next(t for t in axes.texts if t.get_animated())
+
+    MouseEvent("motion_notify_event", canvas, x, y)._process()
+    assert tooltip.get_visible()
+    assert tooltip.get_text() == "01.07.2026\nApplied"
+
+    MouseEvent("motion_notify_event", canvas, 1, 1)._process()
+    assert not tooltip.get_visible()
+
+
+def test_timeline_header_dates_line_up_with_the_rows_below():
+    timeline = charts.build_timeline_figures(SAMPLE, TODAY)
+    FigureCanvasAgg(timeline.header)
+    render(timeline.body)  # lays the body out, which lines the header up
+    (header_axes,) = timeline.header.axes
+    (body_axes,) = timeline.body.axes
+    assert header_axes.get_xlim() == body_axes.get_xlim()
+    assert header_axes.bbox.x0 == pytest.approx(body_axes.bbox.x0)
+    assert header_axes.bbox.x1 == pytest.approx(body_axes.bbox.x1)
