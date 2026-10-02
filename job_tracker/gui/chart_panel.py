@@ -61,8 +61,15 @@ class ScrollableChartPanel(ttk.Frame):
         """The header's and the figure's own heights, in pixels."""
         return self._header_height + self._figure_height
 
-    def show(self, figure: Figure, header: Figure | None = None) -> None:
-        """Replace the current chart with `figure`, under `header`."""
+    def show(
+        self,
+        figure: Figure,
+        header: Figure | None = None,
+        keep_scroll: bool = False,
+    ) -> None:
+        """Replace the current chart with `figure`, under `header`; from
+        the top, or where the last one was scrolled to."""
+        scrolled_to = self._viewport.yview()[0] if keep_scroll else 0
         if self._canvas is not None:
             self._viewport.delete(self._window)
             self._canvas.get_tk_widget().destroy()
@@ -90,7 +97,7 @@ class ScrollableChartPanel(ttk.Frame):
         )
         self._bind_scrolling(widget)
         self._fit()
-        self._viewport.yview_moveto(0)
+        self._viewport.yview_moveto(scrolled_to)
 
     def _bind_scrolling(self, widget: tk.Widget) -> None:
         for sequence in ("<MouseWheel>", "<TouchpadScroll>"):

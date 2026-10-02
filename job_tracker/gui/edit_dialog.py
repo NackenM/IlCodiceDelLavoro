@@ -32,7 +32,10 @@ from .form_widgets import (
     ScrolledText,
     size_to_content,
 )
+from .logo_store import LogoStore
 from .today_shortcut import TODAY_TOKEN, enable_today_shortcut, today_display
+
+LOGO_PIXELS = 64
 
 
 @dataclass
@@ -57,6 +60,7 @@ class EditApplicationDialog(tk.Toplevel):
         application: Application,
         known_companies: list[str],
         on_changed: Callable[[], None],
+        logos: LogoStore | None = None,
     ):
         super().__init__(parent)
         self.title(f"Edit Application -- {application.job_title}")
@@ -65,6 +69,7 @@ class EditApplicationDialog(tk.Toplevel):
         self.repository = repository
         self.application = application
         self.on_changed = on_changed
+        self.logos = logos
 
         self._build_details(known_companies)
         ttk.Separator(self).pack(fill="x", padx=10, pady=8)
@@ -76,8 +81,10 @@ class EditApplicationDialog(tk.Toplevel):
 
     def _build_details(self, known_companies: list[str]) -> None:
         application = self.application
-        form = LabeledForm(self)
-        form.pack(fill="x", padx=10, pady=(10, 0))
+        details = ttk.Frame(self)
+        details.pack(fill="x", padx=10, pady=(10, 0))
+        form = LabeledForm(details)
+        form.pack(side="left", fill="x", expand=True)
         self.job_title = tk.StringVar(value=application.job_title)
         form.add_entry("Job title", self.job_title)
         self.company = tk.StringVar(value=application.company)
@@ -95,6 +102,15 @@ class EditApplicationDialog(tk.Toplevel):
         form.add_row("Current status", self.status)
         self.last_update = ttk.Label(form)
         form.add_row("Last update", self.last_update, stretch=False)
+
+        if self.logos is not None:
+            self.logo = ttk.Label(details)
+            self.logo.pack(side="right", anchor="n", padx=(16, 0), pady=4)
+            # Follows the company as it is typed, from the logos already
+            # found; a new company is looked up once saved.
+            self.company.trace_add("write", lambda *_: self._show_logo())
+            self.logos.subscribe_while(self, self._show_logo)
+            self._show_logo()
 
     def _build_stage_dates(self) -> None:
         ttk.Label(
@@ -206,6 +222,12 @@ class EditApplicationDialog(tk.Toplevel):
         )
 
     # -- behaviour -----------------------------------------------------------
+
+    def _show_logo(self) -> None:
+        company = self.company.get().strip()
+        self.logo.configure(
+            image=self.logos.photo(company, LOGO_PIXELS) if company else ""
+        )
 
     def _entered_stage_dates(self) -> dict[Stage, date]:
         """The complete, valid dates entered; blank or half-typed ones are

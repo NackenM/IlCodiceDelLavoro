@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 from matplotlib.transforms import Bbox
+from PIL.Image import Image
 
 from ..outcomes import Outcome
 from ..stages import Stage
@@ -70,6 +72,12 @@ TITLE_STYLE = {"fontsize": TEXT_TITLE, "color": INK_PRIMARY, "loc": "left"}
 # Tooltips list at most this many entries; the rest are counted.
 TOOLTIP_MAX_ENTRIES = 12
 
+# A company name -> its logo tile (see `job_tracker.logos`).
+LogoLookup = Callable[[str], Image]
+# Row logos are this many points square, this far left of the plot.
+ROW_LOGO_POINTS = 18
+ROW_LOGO_GAP_POINTS = 8
+
 
 def categorical_style(index: int) -> tuple[str, str]:
     """(color, hatch) of the `index`-th entry in a categorical series."""
@@ -113,6 +121,35 @@ def truncate(label: str, max_length: int = LABEL_MAX_LENGTH) -> str:
     if len(label) <= max_length:
         return label
     return label[: max_length - 1] + "…"
+
+
+def row_label_pad(base_pad: float, logos: LogoLookup | None) -> float:
+    """Tick label pad that leaves room for `add_row_logos`."""
+    if logos is None:
+        return base_pad
+    return base_pad + ROW_LOGO_POINTS + ROW_LOGO_GAP_POINTS
+
+
+def add_row_logos(
+    axes: Axes, rows: Sequence[tuple[float, str]], logos: LogoLookup
+) -> None:
+    """The logo of each (y, company) row between its tick label and the
+    plot; the labels need `row_label_pad` to make room."""
+    for y, company in rows:
+        tile = logos(company)
+        axes.add_artist(
+            AnnotationBbox(
+                OffsetImage(tile, zoom=ROW_LOGO_POINTS / tile.width),
+                (0, y),
+                xycoords=("axes fraction", "data"),
+                xybox=(-ROW_LOGO_GAP_POINTS, 0),
+                boxcoords="offset points",
+                box_alignment=(1, 0.5),
+                frameon=False,
+                pad=0,
+                annotation_clip=False,
+            )
+        )
 
 
 def bullet_list(

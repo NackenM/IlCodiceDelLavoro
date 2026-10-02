@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from functools import partial
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -11,9 +12,10 @@ from ..companies import known_companies
 from ..model import Application
 from ..repository import DEFAULT_CSV_PATH, ApplicationRepository
 from .add_dialog import AddApplicationDialog
-from .application_list import ApplicationList
+from .application_list import LOGO_PIXELS, ApplicationList
 from .chart_panel import ChartPanel
 from .edit_dialog import EditApplicationDialog
+from .logo_store import LogoStore
 from .stats_dialog import StatisticsDialog
 from .stop_signals import close_on_stop_signals, stop_signals_held_back
 from .timeline_dialog import TimelineDialog
@@ -29,13 +31,15 @@ USAGE_HINT = (
 
 
 class MainWindow(tk.Tk):
-    def __init__(self, repository: ApplicationRepository):
+    def __init__(self, repository: ApplicationRepository, logos: bool = True):
         super().__init__()
         self.title("Job Application Tracker")
         self.geometry("1180x760")
         self.minsize(900, 620)
         self.repository = repository
         self.applications: list[Application] = []
+        # Company logos are looked up on the web unless switched off.
+        self.logos = LogoStore(self) if logos else None
 
         self._build_toolbar()
         self._build_body()
@@ -73,8 +77,12 @@ class MainWindow(tk.Tk):
     def _build_body(self) -> None:
         panes = ttk.Panedwindow(self, orient="vertical")
         panes.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        logo_for = None
+        if self.logos is not None:
+            logo_for = partial(self.logos.photo, size=LOGO_PIXELS)
+            self.logos.subscribe(lambda: self.application_list.show_logos())
         self.application_list = ApplicationList(
-            panes, on_open=self._open_edit_dialog
+            panes, on_open=self._open_edit_dialog, logo_for=logo_for
         )
         panes.add(self.application_list, weight=2)
         self.chart_panel = ChartPanel(panes)
@@ -82,6 +90,8 @@ class MainWindow(tk.Tk):
 
     def refresh(self) -> None:
         self.applications = self.repository.load_all()
+        if self.logos is not None:
+            self.logos.request(self.applications)
         self.application_list.show(self.applications)
         self._show_chart()
 
@@ -104,10 +114,11 @@ class MainWindow(tk.Tk):
             application,
             known_companies(self.applications),
             on_changed=self.refresh,
+            logos=self.logos,
         )
 
     def _open_statistics(self) -> None:
-        StatisticsDialog(self, self.applications)
+        StatisticsDialog(self, self.applications, self.logos)
 
     def _open_timeline(self) -> None:
         selected = self.application_list.selected()
@@ -119,11 +130,11 @@ class MainWindow(tk.Tk):
                 parent=self,
             )
             return
-        TimelineDialog(self, selected)
+        TimelineDialog(self, selected, self.logos)
 
 
-def main(csv_path: Path = DEFAULT_CSV_PATH) -> None:
+def main(csv_path: Path = DEFAULT_CSV_PATH, logos: bool = True) -> None:
     with stop_signals_held_back():
-        window = MainWindow(ApplicationRepository(csv_path))
+        window = MainWindow(ApplicationRepository(csv_path), logos)
         close_on_stop_signals(window)
     window.mainloop()

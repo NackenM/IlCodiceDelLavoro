@@ -25,10 +25,13 @@ from .style import (
     TEXT_SMALL,
     TITLE_STYLE,
     HoverTarget,
+    LogoLookup,
+    add_row_logos,
     attach_hover,
     bullet_list,
     new_figure,
     plural,
+    row_label_pad,
     show_empty_message,
     style_bar_axes,
     truncate,
@@ -39,6 +42,7 @@ DONUT_WEDGE_STYLE = {"width": 0.36, "edgecolor": SURFACE, "linewidth": 2}
 # Not-targeted outcomes in the success donut are drawn this faint.
 DIMMED_ALPHA = 0.18
 COMPANY_BARS_MAX = 15
+DEFAULT_TICK_PAD = 3.5  # matplotlib's, in points
 # One color per slice; one more than this becomes "Other".
 COMPANY_SLICES_MAX = len(CATEGORICAL) - 1
 
@@ -115,9 +119,11 @@ def build_company_outcomes_figure(
     applications: Sequence[Application],
     today: date | None = None,
     max_companies: int = COMPANY_BARS_MAX,
+    logos: LogoLookup | None = None,
 ) -> Figure:
     """One horizontal bar per company, split into the outcomes of the
-    applications sent there; most-applied-to companies on top."""
+    applications sent there; most-applied-to companies on top. With
+    `logos`, each company's logo is beside its name."""
     figure, axes = new_figure(6.4, 4.6)
     groups = group_by_company(applications)
     if not groups:
@@ -200,6 +206,13 @@ def build_company_outcomes_figure(
         color=INK_SECONDARY,
     )
     axes.invert_yaxis()
+    if logos is not None:
+        axes.tick_params(axis="y", pad=row_label_pad(DEFAULT_TICK_PAD, logos))
+        add_row_logos(
+            axes,
+            [(y, g.name) for y, g in enumerate(shown) if g.has_company],
+            logos,
+        )
     axes.set_xlim(0, widest * 1.12)
     axes.xaxis.get_major_locator().set_params(integer=True)
     axes.set_xlabel("Applications", fontsize=TEXT_BODY, color=INK_SECONDARY)

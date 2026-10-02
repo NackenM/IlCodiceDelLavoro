@@ -30,9 +30,12 @@ from .style import (
     TEXT_TITLE,
     TITLE_STYLE,
     HoverTarget,
+    LogoLookup,
+    add_row_logos,
     attach_hover,
     new_figure,
     plural,
+    row_label_pad,
     show_empty_message,
 )
 
@@ -293,8 +296,11 @@ def _draw_dates_header(
 
 
 def build_timeline_figures(
-    applications: Sequence[Application], today: date | None = None
+    applications: Sequence[Application],
+    today: date | None = None,
+    logos: LogoLookup | None = None,
 ) -> TimelineFigures:
+    """With `logos`, each row shows its company's logo."""
     today = today or date.today()
     title = f"Timeline  ·  {plural(len(applications), 'application')}"
     header = Figure(
@@ -369,7 +375,13 @@ def build_timeline_figures(
     for spine in axes.spines.values():
         spine.set_visible(False)
     axes.tick_params(colors=INK_SECONDARY, length=0, labelsize=TEXT_BODY)
-    axes.tick_params(axis="y", pad=ROW_LABEL_PAD)
+    axes.tick_params(axis="y", pad=row_label_pad(ROW_LABEL_PAD, logos))
+    if logos is not None:
+        add_row_logos(
+            axes,
+            [(y, a.company) for y, a in enumerate(applications) if a.company],
+            logos,
+        )
     # The dates are in the header; the gridlines carry them down here.
     axes.tick_params(axis="x", labelbottom=False)
     # Markers win over the gap they sit on.

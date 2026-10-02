@@ -15,6 +15,11 @@ from ..outcomes import is_silently_ghosted
 from ..stages import Stage
 
 _STAGE_ORDER = {stage: index for index, stage in enumerate(Stage)}
+# Company logos in the first column, this many pixels square, in rows tall
+# enough to hold them.
+LOGO_PIXELS = 20
+LOGO_ROW_HEIGHT = 26
+LOGO_COLUMN_WIDTH = 34
 
 
 @dataclass(frozen=True)
@@ -115,20 +120,38 @@ def sort_applications(
 
 class ApplicationList(ttk.Frame):
     """Treeview of the applications; click a heading to sort by it, again
-    to reverse."""
+    to reverse. With `logo_for`, each row starts with its company's logo
+    (None for none)."""
 
-    def __init__(self, master, on_open: Callable[[Application], None]):
+    def __init__(
+        self,
+        master,
+        on_open: Callable[[Application], None],
+        logo_for: Callable[[str], tk.PhotoImage | None] | None = None,
+    ):
         super().__init__(master)
         self._applications: list[Application] = []
         self._sort_column: ListColumn | None = None
         self._sort_descending = False
         self._on_open = on_open
+        self._logo_for = logo_for
 
+        style = "Treeview"
+        if logo_for is not None:
+            style = "Logos.Treeview"
+            ttk.Style(self).configure(style, rowheight=LOGO_ROW_HEIGHT)
         self.tree = ttk.Treeview(
             self,
             columns=[column.key for column in LIST_COLUMNS],
-            show="headings",
+            show="tree headings" if logo_for else "headings",
             selectmode="extended",
+            style=style,
+        )
+        self.tree.column(
+            "#0",
+            width=LOGO_COLUMN_WIDTH,
+            minwidth=LOGO_COLUMN_WIDTH,
+            stretch=False,
         )
         for column in LIST_COLUMNS:
             self.tree.heading(
@@ -182,7 +205,22 @@ class ApplicationList(ttk.Frame):
                 values=[
                     column.cell_text(application) for column in LIST_COLUMNS
                 ],
+                **self._logo_option(application),
             )
+
+    def show_logos(self) -> None:
+        """Put in the logos that arrived since the rows were drawn."""
+        for application in self._applications:
+            if self.tree.exists(application.id):
+                self.tree.item(
+                    application.id, **self._logo_option(application)
+                )
+
+    def _logo_option(self, application: Application) -> dict:
+        if self._logo_for is None or not application.company.strip():
+            return {}
+        logo = self._logo_for(application.company)
+        return {"image": logo} if logo is not None else {}
 
     def _on_double_click(self, event: tk.Event) -> None:
         # The row under the cursor: with several rows selected, the

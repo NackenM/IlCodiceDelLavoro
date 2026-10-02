@@ -16,14 +16,20 @@ from job_tracker.repository import DEFAULT_CSV_PATH
     default=DEFAULT_CSV_PATH,
     type=click.Path(dir_okay=False, writable=True, path_type=Path),
 )
-def run(csv_path: Path) -> None:
+@click.option(
+    "--no-logos",
+    is_flag=True,
+    help="Don't look up company logos on the web (sends company names and "
+    "websites to Clearbit and Hunter).",
+)
+def run(csv_path: Path, no_logos: bool) -> None:
     """Open the job application tracker on CSV_PATH.
 
     Without CSV_PATH, the bundled example data in data/applications.csv is
     used. A file that does not exist yet is created with the first saved
     application.
     """
-    main(csv_path)
+    main(csv_path, logos=not no_logos)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from job_tracker.charts.statistics import company_share_slices
 from job_tracker.charts.style import bullet_list
 from job_tracker.charts.timeline import row_label
 from job_tracker.charts.waterfall import waterfall_steps
+from job_tracker.logos import initials_tile
 from job_tracker.model import NO_COMPANY
 from job_tracker.outcomes import SUCCESS_TARGETS
 from job_tracker.stages import Stage
@@ -205,3 +206,16 @@ def test_timeline_header_dates_line_up_with_the_rows_below():
     assert header_axes.get_xlim() == body_axes.get_xlim()
     assert header_axes.bbox.x0 == pytest.approx(body_axes.bbox.x0)
     assert header_axes.bbox.x1 == pytest.approx(body_axes.bbox.x1)
+
+
+def test_charts_render_with_company_logos():
+    timeline = charts.build_timeline_figures(
+        SAMPLE, TODAY, logos=initials_tile
+    )
+    render(timeline.header)
+    render(timeline.body)
+    render(
+        charts.build_company_outcomes_figure(
+            SAMPLE, TODAY, logos=initials_tile
+        )
+    )

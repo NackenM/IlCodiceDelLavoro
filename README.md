@@ -20,6 +20,8 @@ file, so nothing leaves your machine.
 - **Charts**: an outcome waterfall and a per-stage progress chart in the main
   window, success rates and company breakdowns in the Statistics window, and a
   timeline of selected applications.
+- **Company logos** in the list, the edit window, the timeline and the
+  company chart, looked up on the web without any account or API key.
 - **Plain CSV storage** in `data/applications.csv`, which you can open in any
   spreadsheet program.
 
@@ -86,6 +88,7 @@ python run.py [CSV_PATH]
 ```bash
 python run.py                                # bundled example data
 python run.py ~/Documents/applications.csv   # your own file
+python run.py --no-logos                     # don't look up logos online
 python run.py --help                         # show usage
 ```
 
@@ -189,6 +192,10 @@ companies you have applied to more than once.
 
 ![Statistics: company share](docs/screenshots/statistics-company-share.png)
 
+**Reply times** shows how many days each application waited for its first
+reply, split into assessment invitations, interview invitations and
+rejections, with the average and median of each.
+
 #### How outcomes are counted
 
 Every application falls into exactly one outcome, based on its stage dates
@@ -211,6 +218,31 @@ total duration.
 
 ![Timeline of selected applications](docs/screenshots/timeline.png)
 
+Long timelines scroll; the dates stay in view at the top.
+
+### Company logos
+
+Each company's logo is shown in the list, the edit window, the timeline and
+the **By company** chart. The app looks them up in the background when it starts, so it is
+usable straight away and the logos appear within a second or two. Logos are
+only kept while the app runs; nothing is stored on disk.
+
+To find a company's logo, the app needs its website. It takes it from
+
+1. the contact email (unless it is a freemail address such as gmail.com),
+2. the job posting URL (unless it is on a job board such as LinkedIn or
+   Personio),
+3. or else the company name, looked up with Clearbit's public company
+   autocomplete. Only a company of the same name counts, so an ambiguous name
+   gets no logo rather than someone else's.
+
+The logo itself comes from [Hunter's free logo service](https://hunter.io/api/logo).
+Neither needs an account or an API key. Companies without a logo get a tile
+with their initials.
+
+This sends company names and websites to Clearbit and Hunter. Start the app
+with `--no-logos` if you'd rather not.
+
 ## Data file
 
 All data lives in the CSV file given on the command line
@@ -230,6 +262,8 @@ job_tracker/
   model.py             Application dataclass
   stages.py            stages, round formats and focuses
   outcomes.py          sorting applications into outcomes
+  reply_times.py       time from applying to the first reply
+  logos.py             finding company logos on the web
   repository.py        loading and saving the CSV
   scraper.py           parsing job postings from a URL
   charts/              matplotlib figures

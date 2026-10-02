@@ -10,6 +10,7 @@ from tkinter import ttk
 from matplotlib.figure import Figure
 
 from .. import charts
+from ..charts.style import LogoLookup
 from ..model import Application
 from ..outcomes import (
     APPLIED_WITHIN_CHOICES,
@@ -19,24 +20,41 @@ from ..outcomes import (
 )
 from .chart_panel import ChartPanel
 from .form_widgets import HINT_COLOR
+from .logo_store import LogoStore
 
 SUCCESS_RATE_VIEW = "Success rate"
-# Views the target filter does not apply to.
-UNTARGETED_VIEWS: dict[str, Callable[[Sequence[Application]], Figure]] = {
-    "By company": charts.build_company_outcomes_figure,
-    "Company share": charts.build_company_share_figure,
-    "Reply times": charts.build_reply_times_figure,
+BY_COMPANY_VIEW = "By company"
+# Views the target filter does not apply to; given the applications and
+# the company logos (None without).
+UNTARGETED_VIEWS: dict[
+    str, Callable[[Sequence[Application], LogoLookup | None], Figure]
+] = {
+    BY_COMPANY_VIEW: lambda applications, logos: (
+        charts.build_company_outcomes_figure(applications, logos=logos)
+    ),
+    "Company share": lambda applications, _: charts.build_company_share_figure(
+        applications
+    ),
+    "Reply times": lambda applications, _: charts.build_reply_times_figure(
+        applications
+    ),
 }
 
 
 class StatisticsDialog(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, applications: list[Application]):
+    def __init__(
+        self,
+        parent: tk.Misc,
+        applications: list[Application],
+        logos: LogoStore | None = None,
+    ):
         super().__init__(parent)
         self.title("Statistics")
         self.geometry("860x600")
         self.minsize(560, 440)
         self.transient(parent)
         self.applications = applications
+        self.logos = logos
 
         filters = ttk.Frame(self)
         filters.pack(fill="x", padx=10, pady=8)
@@ -60,6 +78,8 @@ class StatisticsDialog(tk.Toplevel):
         self.chart_panel = ChartPanel(self)
         self.chart_panel.pack(fill="both", expand=True, padx=10, pady=(4, 10))
         self._redraw()
+        if logos is not None:
+            logos.subscribe_while(self, self._redraw_logos)
 
     def _add_choice(
         self, parent: ttk.Frame, label: str, choices: list[str], width: int
@@ -85,8 +105,14 @@ class StatisticsDialog(tk.Toplevel):
         build_untargeted_figure = UNTARGETED_VIEWS.get(self.view.get())
         if build_untargeted_figure:
             self.target_choice.configure(state="disabled")
-            figure = build_untargeted_figure(shown)
+            figure = build_untargeted_figure(
+                shown, self.logos.image if self.logos else None
+            )
         else:
             self.target_choice.configure(state="readonly")
             figure = charts.build_success_rate_figure(shown, self.target.get())
         self.chart_panel.show(figure)
+
+    def _redraw_logos(self) -> None:
+        if self.view.get() == BY_COMPANY_VIEW:
+            self._redraw()
