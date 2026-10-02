@@ -12,6 +12,7 @@ from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 from matplotlib.transforms import Bbox
 from PIL.Image import Image
 
+from ..model import Application
 from ..outcomes import Outcome
 from ..stages import Stage
 
@@ -62,6 +63,7 @@ STAGE_AXIS_LABELS = {
 }
 
 LABEL_MAX_LENGTH = 30
+HIGHLIGHT_NAME_MAX_LENGTH = 60
 # Text sizes, in points. The Tk canvas shows charts at standard resolution,
 # so on a Retina display they are scaled up and soften; nothing is set
 # smaller than TEXT_SMALL to keep them readable there.
@@ -129,8 +131,9 @@ def truncate(label: str, max_length: int = LABEL_MAX_LENGTH) -> str:
 
 
 def draw_subtitle(axes: Axes, text: str) -> None:
-    """A line under the title (which needs pad=22 to make room)."""
-    axes.text(
+    """A line under the title (which needs pad=22 to make room). Left out
+    of the layout, so a long one can't squeeze the plot to fit it."""
+    subtitle = axes.text(
         0,
         1.02,
         text,
@@ -139,6 +142,14 @@ def draw_subtitle(axes: Axes, text: str) -> None:
         color=INK_SECONDARY,
         va="bottom",
     )
+    subtitle.set_in_layout(False)
+
+
+def highlight_subtitle(application: Application, where: str) -> str:
+    """ "■ Company · Job title  →  where it is", the name shortened to fit
+    above the plot."""
+    name = truncate(application.display_name, HIGHLIGHT_NAME_MAX_LENGTH)
+    return f"■ {name}  →  {where}"
 
 
 def row_label_pad(base_pad: float, logos: LogoLookup | None) -> float:

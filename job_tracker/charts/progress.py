@@ -29,6 +29,7 @@ from .style import (
     attach_hover,
     categorical_style,
     draw_subtitle,
+    highlight_subtitle,
     new_figure,
     style_bar_axes,
     truncate,
@@ -209,7 +210,7 @@ def build_progress_figure(
     show_legend = len(applications) <= LEGEND_MAX_APPLICATIONS
     subtitle = None
     if highlight is not None:
-        subtitle = f"■ {highlight.display_name}  →  {highlight.status_label()}"
+        subtitle = highlight_subtitle(highlight, highlight.status_label())
     elif not show_legend:
         subtitle = HOVER_HINT
     axes.set_title(

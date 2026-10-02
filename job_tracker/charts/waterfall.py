@@ -28,6 +28,7 @@ from .style import (
     attach_hover,
     bullet_list,
     draw_subtitle,
+    highlight_subtitle,
     new_figure,
     plural,
     style_bar_axes,
@@ -200,7 +201,7 @@ def build_outcome_waterfall_figure(
         where = " · ".join(
             step.label.replace("\n", " ") for step in picked_steps
         )
-        draw_subtitle(axes, f"■ {highlight.display_name}  →  {where}")
+        draw_subtitle(axes, highlight_subtitle(highlight, where))
     axes.set_xticks(range(len(steps)))
     axes.set_xticklabels(
         [step.label for step in steps],

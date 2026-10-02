@@ -254,3 +254,35 @@ def test_progress_outlines_only_the_highlighted_application():
     assert _subtitle(figure) == (
         f"■ {picked.display_name}  →  {picked.status_label()}"
     )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda apps, picked: charts.build_outcome_waterfall_figure(
+            apps, TODAY, highlight=picked
+        ),
+        lambda apps, picked: charts.build_progress_figure(
+            apps, highlight=picked
+        ),
+    ],
+)
+def test_a_long_highlighted_title_leaves_the_plot_in_place(build):
+    long_title = make_application(
+        company="Acme Robotics",
+        job_title="Senior Staff Principal Embedded Software Engineer " * 3,
+        dates={Stage.APPLIED: "2026-09-01"},
+    )
+    applications = [*SAMPLE, long_title]
+    plain, highlighted = (
+        build(applications, None),
+        build(applications, long_title),
+    )
+    render(plain)
+    render(highlighted)
+    (plain_axes,) = plain.axes
+    (highlighted_axes,) = highlighted.axes
+    assert highlighted_axes.get_position().x1 == pytest.approx(
+        plain_axes.get_position().x1
+    )
+    assert "…" in _subtitle(highlighted)
