@@ -1,21 +1,27 @@
 """Reply times: how many days each application waited for its first reply,
-one row per kind of reply, with the average marked."""
+one row per kind of reply, with the average marked; and the applications
+still waiting, against those averages."""
 
 from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Sequence
+from datetime import date
 
 from matplotlib.figure import Figure
 
 from ..model import Application
+from ..outcomes import GHOSTED_AFTER_DAYS
 from ..reply_times import (
     FirstReply,
     ReplyKind,
     ReplyTimeSummary,
+    Waiting,
     first_replies,
+    waiting_for_reply,
 )
 from .style import (
+    BASELINE,
     INK_PRIMARY,
     INK_SECONDARY,
     SURFACE,
@@ -31,6 +37,7 @@ from .style import (
 )
 
 ALL_REPLIES = "All replies"
+PENDING = "Pending"
 # The same colors as the matching markers in the timeline.
 REPLY_COLORS = {
     ALL_REPLIES: INK_SECONDARY,
@@ -42,9 +49,12 @@ REPLY_COLORS = {
 STACK_STEP = 0.09
 STACK_MAX_OFFSET = 0.32
 MEAN_HALF_HEIGHT = 0.36
+# The time axis ends a little past the longest reply or the ghosted limit,
+# whichever is later; applications waiting longer sit at its end.
+AXIS_END_MARGIN = 1.15
 
 
-def _stack_offsets(replies: Sequence[FirstReply]) -> list[float]:
+def _stack_offsets(replies: Sequence[FirstReply | Waiting]) -> list[float]:
     """Vertical offsets that spread replies on the same day around the
     row: 0, +1, -1, +2, -2, ... steps, capped to stay in the row."""
     seen: Counter[int] = Counter()
@@ -70,11 +80,84 @@ def row_label(label: str, summary: ReplyTimeSummary | None) -> str:
     )
 
 
-def build_reply_times_figure(applications: Sequence[Application]) -> Figure:
+def waiting_tooltip(waiting: Waiting, averages: dict[ReplyKind, float]) -> str:
+    """Who, how long, and which average reply times it is past."""
+    passed = [
+        kind.lower() for kind, avg in averages.items() if waiting.days > avg
+    ]
+    if not averages:
+        verdict = ""
+    elif len(passed) == len(averages):
+        verdict = "\nlonger than every average reply time"
+    elif passed:
+        verdict = f"\npast the average {' and '.join(passed)} reply time"
+    else:
+        verdict = "\nwithin every average reply time"
+    return (
+        f"{waiting.application.display_name}\n"
+        f"waiting {plural(waiting.days, 'day')}{verdict}"
+    )
+
+
+def _draw_averages_for_comparison(
+    axes, y: float, averages: dict[ReplyKind, float]
+) -> list[HoverTarget]:
+    """Each kind's average reply time across the pending row, dashed in
+    the color of its row above; the value is in the tooltip."""
+    hover_targets = []
+    for kind, average in averages.items():
+        axes.plot(
+            [average] * 2,
+            [y - MEAN_HALF_HEIGHT, y + MEAN_HALF_HEIGHT],
+            color=REPLY_COLORS[kind],
+            linewidth=1.6,
+            linestyle=(0, (3, 2)),
+            zorder=2,
+        )
+        # An invisible, wider line makes the dashes easy to hover.
+        (hit_area,) = axes.plot(
+            [average] * 2,
+            [y - MEAN_HALF_HEIGHT, y + MEAN_HALF_HEIGHT],
+            color="none",
+            linewidth=8,
+        )
+        hover_targets.append(
+            HoverTarget(
+                hit_area, f"Ø {kind.lower()} reply: {average:.1f} days"
+            )
+        )
+    return hover_targets
+
+
+def _draw_ghosted_limit(axes, y: float) -> None:
+    """Where waiting turns into being ghosted, across the pending row."""
+    axes.plot(
+        [GHOSTED_AFTER_DAYS] * 2,
+        [y - MEAN_HALF_HEIGHT, y + MEAN_HALF_HEIGHT],
+        color=BASELINE,
+        linewidth=1.6,
+        zorder=2,
+    )
+    axes.annotate(
+        f"ghosted after {GHOSTED_AFTER_DAYS} d",
+        (GHOSTED_AFTER_DAYS, y - MEAN_HALF_HEIGHT),
+        xytext=(0, 2),
+        textcoords="offset points",
+        ha="center",
+        va="bottom",
+        fontsize=TEXT_SMALL,
+        color=INK_SECONDARY,
+    )
+
+
+def build_reply_times_figure(
+    applications: Sequence[Application], today: date | None = None
+) -> Figure:
     figure, axes = new_figure(6.4, 4.6)
     replies = first_replies(applications)
-    if not replies:
-        show_empty_message(axes, "No replies in this time range")
+    waiting = waiting_for_reply(applications, today)
+    if not replies and not waiting:
+        show_empty_message(axes, "No applications in this time range")
         return figure
 
     rows: dict[str, list[FirstReply]] = {ALL_REPLIES: replies}
@@ -139,14 +222,69 @@ def build_reply_times_figure(applications: Sequence[Application]) -> Figure:
             zorder=5,
         )
 
-    axes.set_yticks(range(len(rows)))
+    # Last, the applications still waiting: hollow, as nothing came yet.
+    y = len(rows)
+    waiting = sorted(waiting, key=lambda w: w.days)
+    longest_reply = max((reply.days for reply in replies), default=0)
+    axis_end = max(longest_reply, GHOSTED_AFTER_DAYS) * AXIS_END_MARGIN
+    averages = {
+        kind: summary.mean_days
+        for kind in ReplyKind
+        if (summary := ReplyTimeSummary.of(rows[kind]))
+    }
+    hover_targets += _draw_averages_for_comparison(axes, y, averages)
+    if waiting:
+        _draw_ghosted_limit(axes, y)
+    shown_waiting = [  # past the axis end: at the end, pointing on
+        Waiting(item.application, min(item.days, round(axis_end)))
+        for item in waiting
+    ]
+    for item, shown, offset in zip(
+        waiting, shown_waiting, _stack_offsets(shown_waiting), strict=True
+    ):
+        beyond = item.days > shown.days
+        (dot,) = axes.plot(
+            [shown.days],
+            [y + offset],
+            marker=">" if beyond else "o",
+            markersize=7,
+            markerfacecolor=SURFACE,
+            markeredgecolor=INK_SECONDARY,
+            markeredgewidth=1.5,
+            linestyle="none",
+            zorder=3,
+            clip_on=False,
+        )
+        hover_targets.append(HoverTarget(dot, waiting_tooltip(item, averages)))
+    if beyond_count := sum(
+        item.days > shown.days
+        for item, shown in zip(waiting, shown_waiting, strict=True)
+    ):
+        axes.annotate(
+            f"{beyond_count} longer",
+            (round(axis_end), y + MEAN_HALF_HEIGHT),
+            xytext=(0, -2),
+            textcoords="offset points",
+            ha="center",
+            va="top",
+            fontsize=TEXT_SMALL,
+            color=INK_SECONDARY,
+        )
+    pending_summary = ReplyTimeSummary.of(waiting)
+    row_labels.append(
+        f"{PENDING}\n{pending_summary.count} waiting  ·  "
+        f"median {pending_summary.median_days:g} d"
+        if pending_summary
+        else PENDING
+    )
+
+    axes.set_yticks(range(len(row_labels)))
     axes.set_yticklabels(row_labels, fontsize=TEXT_BODY, color=INK_SECONDARY)
-    axes.set_ylim(len(rows) - 0.5, -0.75)  # all replies on top
-    longest = max(reply.days for reply in replies)
-    axes.set_xlim(-max(longest * 0.04, 0.5), longest * 1.08 + 1)
+    axes.set_ylim(len(row_labels) - 0.5, -0.75)  # all replies on top
+    axes.set_xlim(-max(axis_end * 0.03, 0.5), axis_end + 1)
     axes.xaxis.get_major_locator().set_params(integer=True)
     axes.set_xlabel(
-        "Days from applying to the first reply",
+        "Days from applying to the first reply (pending: until today)",
         fontsize=TEXT_BODY,
         color=INK_SECONDARY,
     )
@@ -160,7 +298,8 @@ def build_reply_times_figure(applications: Sequence[Application]) -> Figure:
         0,
         1.02,
         f"{len(replies)} of {plural(len(applications), 'application')} "
-        "answered  ·  Ø = average",
+        f"answered, {len(waiting)} waiting  ·  Ø = average,"
+        "  dashed = average per kind",
         transform=axes.transAxes,
         fontsize=TEXT_SMALL,
         color=INK_SECONDARY,

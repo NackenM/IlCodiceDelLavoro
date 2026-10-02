@@ -2,15 +2,18 @@
 
 import pytest
 
+from job_tracker.charts.reply_times import waiting_tooltip
 from job_tracker.reply_times import (
     ReplyKind,
     ReplyTimeSummary,
+    Waiting,
     first_replies,
     first_reply,
+    waiting_for_reply,
 )
 from job_tracker.stages import Stage
 
-from .factories import make_application
+from .factories import TODAY, make_application
 
 
 @pytest.mark.parametrize(
@@ -80,3 +83,39 @@ def test_summary_of_reply_times():
     )
     assert ReplyTimeSummary.of(replies) == ReplyTimeSummary(3, 6, 4)
     assert ReplyTimeSummary.of([]) is None
+
+
+def test_waiting_counts_days_since_applying_until_today():
+    applications = [
+        make_application(dates={Stage.APPLIED: "2026-09-04"}),
+        # Silently overdue still waits; marked ghosted is closed.
+        make_application(dates={Stage.APPLIED: "2026-07-01"}),
+        make_application(
+            dates={Stage.APPLIED: "2026-07-01", Stage.GHOSTED: "2026-08-15"}
+        ),
+        # Replied, or not applied yet: not waiting.
+        make_application(
+            dates={Stage.APPLIED: "2026-09-01", Stage.ROUND_1: "2026-09-08"}
+        ),
+        make_application(),
+    ]
+    waiting = waiting_for_reply(applications, TODAY)
+    assert [w.days for w in waiting] == [20, 85]
+
+
+@pytest.mark.parametrize(
+    ("days", "verdict"),
+    [
+        (2, "within every average reply time"),
+        (5, "past the average rejection and assessment reply time"),
+        (12, "longer than every average reply time"),
+    ],
+)
+def test_waiting_tooltip_says_which_averages_are_passed(days, verdict):
+    averages = {
+        ReplyKind.REJECTION: 2.5,
+        ReplyKind.ASSESSMENT: 3.2,
+        ReplyKind.INTERVIEW: 8.3,
+    }
+    waiting = Waiting(make_application(company="Acme", job_title="Dev"), days)
+    assert waiting_tooltip(waiting, averages).endswith(verdict)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from statistics import mean, median
 
@@ -72,13 +73,40 @@ def first_replies(applications: Iterable[Application]) -> list[FirstReply]:
 
 
 @dataclass(frozen=True)
+class Waiting:
+    """An application with no reply yet, `days` after it was sent."""
+
+    application: Application
+    days: int
+
+
+def waiting_for_reply(
+    applications: Iterable[Application], today: date | None = None
+) -> list[Waiting]:
+    """The applications still waiting for a first reply. Those marked as
+    ghosted are closed and left out; ones only silently overdue stay in,
+    to show how far past the usual reply times they are."""
+    today = today or date.today()
+    return [
+        Waiting(application, (today - application.date_applied).days)
+        for application in applications
+        if application.date_applied is not None
+        and application.date_applied <= today
+        and not application.has_reached(Stage.GHOSTED)
+        and first_reply(application) is None
+    ]
+
+
+@dataclass(frozen=True)
 class ReplyTimeSummary:
     count: int
     mean_days: float
     median_days: float
 
     @classmethod
-    def of(cls, replies: Sequence[FirstReply]) -> ReplyTimeSummary | None:
+    def of(
+        cls, replies: Sequence[FirstReply | Waiting]
+    ) -> ReplyTimeSummary | None:
         if not replies:
             return None
         days = [reply.days for reply in replies]

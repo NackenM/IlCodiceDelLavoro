@@ -194,7 +194,11 @@ companies you have applied to more than once.
 
 **Reply times** shows how many days each application waited for its first
 reply, split into assessment invitations, interview invitations and
-rejections, with the average and median of each.
+rejections, with the average and median of each. The **Pending** row shows
+the applications still waiting, against the average reply time of each kind
+(dashed lines in its color), so you can tell which ones are overdue.
+Applications waiting past the 30-day ghosted limit sit at the right edge;
+hover them for the actual number of days.
 
 #### How outcomes are counted
 

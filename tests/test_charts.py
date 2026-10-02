@@ -55,7 +55,7 @@ def test_every_chart_renders(applications):
     render(timeline.body)
     render(charts.build_company_outcomes_figure(applications, TODAY))
     render(charts.build_company_share_figure(applications))
-    render(charts.build_reply_times_figure(applications))
+    render(charts.build_reply_times_figure(applications, TODAY))
     for target in SUCCESS_TARGETS:
         render(charts.build_success_rate_figure(applications, target, TODAY))
 
