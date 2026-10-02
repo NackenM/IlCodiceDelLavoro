@@ -48,7 +48,9 @@ class LogoStore:
         self._pending = 0
         self._new_since_notify = False
         self._last_notify = 0.0
-        self._listeners: list[Callable[[], None]] = []
+        # (listener, only once all requested logos are in)
+        self._listeners: list[tuple[Callable[[], None], bool]] = []
+        self._new_since_all_in = False
         self._polling = False
         for _ in range(WORKERS):
             # Daemon threads: closing the app never waits for a request.
@@ -97,16 +99,24 @@ class LogoStore:
             )
         return self._photos[cache_key]
 
-    def subscribe(self, listener: Callable[[], None]) -> Callable[[], None]:
-        """Call `listener` as logos arrive; returns the unsubscribe."""
-        self._listeners.append(listener)
-        return lambda: self._listeners.remove(listener)
+    def subscribe(
+        self, listener: Callable[[], None], once_all_in: bool = False
+    ) -> Callable[[], None]:
+        """Call `listener` as logos arrive, or with `once_all_in` only when
+        the last one requested is in (for views slow to redraw); returns
+        the unsubscribe."""
+        entry = (listener, once_all_in)
+        self._listeners.append(entry)
+        return lambda: self._listeners.remove(entry)
 
     def subscribe_while(
-        self, window: tk.Toplevel, listener: Callable[[], None]
+        self,
+        window: tk.Toplevel,
+        listener: Callable[[], None],
+        once_all_in: bool = False,
     ) -> None:
         """`subscribe` until `window` closes."""
-        unsubscribe = self.subscribe(listener)
+        unsubscribe = self.subscribe(listener, once_all_in)
 
         def on_destroy(event: tk.Event) -> None:
             if event.widget is window:  # not one of its children
@@ -135,15 +145,20 @@ class LogoStore:
             self._pending -= 1
             if logo is not None:
                 self._logos[key] = logo
-                self._new_since_notify = True
+                self._new_since_notify = self._new_since_all_in = True
         now = time.monotonic()
-        if self._new_since_notify and (
+        notify = self._new_since_notify and (
             not self._pending
             or now - self._last_notify >= NOTIFY_INTERVAL_SECONDS
-        ):
+        )
+        notify_all_in = self._new_since_all_in and not self._pending
+        if notify:
             self._new_since_notify = False
             self._last_notify = now
-            for listener in list(self._listeners):
+        if notify_all_in:
+            self._new_since_all_in = False
+        for listener, once_all_in in list(self._listeners):
+            if notify_all_in if once_all_in else notify:
                 listener()
         if self._pending:
             self._root.after(POLL_INTERVAL_MS, self._poll)

@@ -12,6 +12,20 @@ from matplotlib.figure import Figure
 WHEEL_NOTCH_PIXELS = 40
 
 
+class ResizeOnlyCanvas(FigureCanvasTkAgg):
+    """Redraws when its size changes, not on every configure event: Tk also
+    reports a move as one, and a scrolled canvas moves at every step, which
+    would redraw the whole (tall, slow to draw) figure each time."""
+
+    _drawn_size: tuple[int, int] | None = None
+
+    def resize(self, event: tk.Event) -> None:
+        size = (event.width, event.height)
+        if size != self._drawn_size:
+            self._drawn_size = size
+            super().resize(event)
+
+
 class ChartPanel(ttk.Frame):
     """The figure stretched to fill the panel."""
 
@@ -90,7 +104,7 @@ class ScrollableChartPanel(ttk.Frame):
             self._bind_scrolling(header_widget)
 
         self._figure_height = round(figure.bbox.height)
-        self._canvas = FigureCanvasTkAgg(figure, master=self._viewport)
+        self._canvas = ResizeOnlyCanvas(figure, master=self._viewport)
         widget = self._canvas.get_tk_widget()
         self._window = self._viewport.create_window(
             0, 0, window=widget, anchor="nw"

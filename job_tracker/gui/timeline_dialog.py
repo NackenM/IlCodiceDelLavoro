@@ -36,8 +36,11 @@ class TimelineDialog(tk.Toplevel):
         )
         self._draw()
         if logos is not None:
-            # Logos still on their way are drawn in where the rows are.
-            logos.subscribe_while(self, lambda: self._draw(keep_scroll=True))
+            # Logos still on their way are drawn in once all are in, as a
+            # long timeline is slow to redraw.
+            logos.subscribe_while(
+                self, lambda: self._draw(keep_scroll=True), once_all_in=True
+            )
         height = min(
             self.chart_panel.natural_height + 2 * PADDING,
             MAX_HEIGHT,

@@ -15,6 +15,8 @@ from ..model import Application
 from ..stages import INTERVIEW_ROUNDS, PIPELINE, RoundFormat, Stage
 from .style import (
     BASELINE,
+    DIMMED_ALPHA,
+    HIGHLIGHT_EDGE_WIDTH,
     INK_MUTED,
     INK_PRIMARY,
     INK_SECONDARY,
@@ -26,6 +28,7 @@ from .style import (
     HoverTarget,
     attach_hover,
     categorical_style,
+    draw_subtitle,
     new_figure,
     style_bar_axes,
     truncate,
@@ -100,7 +103,12 @@ def _draw_format_key(axes: Axes) -> None:
     axes.add_artist(key)  # keep it when the application legend is added
 
 
-def build_progress_figure(applications: Sequence[Application]) -> Figure:
+def build_progress_figure(
+    applications: Sequence[Application],
+    highlight: Application | None = None,
+) -> Figure:
+    """With `highlight`, that application's segments stand out, outlined,
+    and all others are faint."""
     figure, axes = new_figure()
     pipeline_stages = shown_stages(applications)
     columns = [*pipeline_stages, *SIDE_STAGES]
@@ -120,6 +128,8 @@ def build_progress_figure(applications: Sequence[Application]) -> Figure:
     for _, application in stacking_order:
         color, hatch = styles[application.id]
         legend_label = truncate(application.display_name)
+        picked = highlight is not None and application.id == highlight.id
+        fade = DIMMED_ALPHA if highlight is not None and not picked else 1
         for x, stage in enumerate(columns):
             if not application.has_reached(stage):
                 continue
@@ -133,13 +143,14 @@ def build_progress_figure(applications: Sequence[Application]) -> Figure:
                 1,
                 bottom=column_heights[x],
                 width=BAR_WIDTH,
-                color=to_rgba(color, TINT_ALPHA) if outline else color,
+                color=to_rgba(color, (TINT_ALPHA if outline else 1) * fade),
                 hatch=hatch,
                 hatchcolor=SURFACE,
-                edgecolor=SURFACE,
-                linewidth=1.5,
+                edgecolor=INK_PRIMARY if picked else SURFACE,
+                linewidth=HIGHLIGHT_EDGE_WIDTH if picked else 1.5,
                 label=legend_label,
-                zorder=3,
+                # Above its neighbours, so they don't cover its outline.
+                zorder=5 if picked else 3,
             )
             if outline:
                 # Inset, so the outline doesn't merge into its neighbours.
@@ -149,10 +160,10 @@ def build_progress_figure(applications: Sequence[Application]) -> Figure:
                     bottom=column_heights[x] + 0.08,
                     width=BAR_WIDTH - 0.08,
                     fill=False,
-                    edgecolor=color,
+                    edgecolor=to_rgba(color, fade),
                     linestyle=outline,
                     linewidth=1.6,
-                    zorder=4,
+                    zorder=6 if picked else 4,
                 )
             legend_label = "_nolegend_"  # one legend entry per application
             column_heights[x] += 1
@@ -196,9 +207,14 @@ def build_progress_figure(applications: Sequence[Application]) -> Figure:
     )
     axes.set_ylabel("Applications", fontsize=TEXT_BODY, color=INK_SECONDARY)
     show_legend = len(applications) <= LEGEND_MAX_APPLICATIONS
+    subtitle = None
+    if highlight is not None:
+        subtitle = f"■ {highlight.display_name}  →  {highlight.status_label()}"
+    elif not show_legend:
+        subtitle = HOVER_HINT
     axes.set_title(
         f"Application Pipeline  ·  {len(applications)} total",
-        pad=12 if show_legend else 22,  # room for the hover hint
+        pad=22 if subtitle else 12,
         **TITLE_STYLE,
     )
     axes.set_ylim(0, tallest * 1.18 if tallest else 1)
@@ -206,17 +222,9 @@ def build_progress_figure(applications: Sequence[Application]) -> Figure:
 
     if any_round_reached:
         _draw_format_key(axes)
-    if not show_legend:
-        axes.text(
-            0,
-            1.02,
-            HOVER_HINT,
-            transform=axes.transAxes,
-            fontsize=TEXT_SMALL,
-            color=INK_SECONDARY,
-            va="bottom",
-        )
-    elif applications:
+    if subtitle:
+        draw_subtitle(axes, subtitle)
+    if show_legend and applications:
         axes.legend(
             loc="upper left",
             bbox_to_anchor=(1.01, 1),

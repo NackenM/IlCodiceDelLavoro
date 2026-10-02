@@ -24,6 +24,7 @@ CHART_VIEWS = {
     "Outcome waterfall": charts.build_outcome_waterfall_figure,
     "Progress by application": charts.build_progress_figure,
 }
+SELECTION_REDRAW_DELAY_MS = 150
 USAGE_HINT = (
     "Click a column header to sort  ·  Double-click a row to edit  ·  "
     "⌘-click rows for Timeline"
@@ -85,6 +86,10 @@ class MainWindow(tk.Tk):
             panes, on_open=self._open_edit_dialog, logo_for=logo_for
         )
         panes.add(self.application_list, weight=2)
+        self.application_list.tree.bind(
+            "<<TreeviewSelect>>", lambda _event: self._on_selection_changed()
+        )
+        self._pending_chart_redraw: str | None = None
         self.chart_panel = ChartPanel(panes)
         panes.add(self.chart_panel, weight=3)
 
@@ -96,8 +101,27 @@ class MainWindow(tk.Tk):
         self._show_chart()
 
     def _show_chart(self) -> None:
+        """The chosen chart, with a single selected application in it
+        highlighted."""
+        selected = self.application_list.selected()
+        highlight = selected[0] if len(selected) == 1 else None
         build_figure = CHART_VIEWS[self.chart_view.get()]
-        self.chart_panel.show(build_figure(self.applications))
+        self.chart_panel.show(
+            build_figure(self.applications, highlight=highlight)
+        )
+
+    def _on_selection_changed(self) -> None:
+        # Redrawn once the selection settles, not at every row passed while
+        # moving through the list with the arrow keys.
+        if self._pending_chart_redraw is not None:
+            self.after_cancel(self._pending_chart_redraw)
+        self._pending_chart_redraw = self.after(
+            SELECTION_REDRAW_DELAY_MS, self._redraw_for_selection
+        )
+
+    def _redraw_for_selection(self) -> None:
+        self._pending_chart_redraw = None
+        self._show_chart()
 
     def _open_add_dialog(self) -> None:
         AddApplicationDialog(

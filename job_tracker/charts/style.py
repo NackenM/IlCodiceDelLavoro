@@ -72,6 +72,11 @@ TITLE_STYLE = {"fontsize": TEXT_TITLE, "color": INK_PRIMARY, "loc": "left"}
 # Tooltips list at most this many entries; the rest are counted.
 TOOLTIP_MAX_ENTRIES = 12
 
+# An application picked out in a chart: everything else is drawn this
+# faint, and its own part outlined.
+DIMMED_ALPHA = 0.25
+HIGHLIGHT_EDGE_WIDTH = 2
+
 # A company name -> its logo tile (see `job_tracker.logos`).
 LogoLookup = Callable[[str], Image]
 # Row logos are this many points square, this far left of the plot.
@@ -121,6 +126,19 @@ def truncate(label: str, max_length: int = LABEL_MAX_LENGTH) -> str:
     if len(label) <= max_length:
         return label
     return label[: max_length - 1] + "…"
+
+
+def draw_subtitle(axes: Axes, text: str) -> None:
+    """A line under the title (which needs pad=22 to make room)."""
+    axes.text(
+        0,
+        1.02,
+        text,
+        transform=axes.transAxes,
+        fontsize=TEXT_SMALL,
+        color=INK_SECONDARY,
+        va="bottom",
+    )
 
 
 def row_label_pad(base_pad: float, logos: LogoLookup | None) -> float:

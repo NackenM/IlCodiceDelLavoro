@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from matplotlib.colors import to_rgba
 from matplotlib.figure import Figure
 
 from ..model import Application
@@ -14,6 +15,8 @@ from ..outcomes import Outcome, group_by_outcome, rejection_stage
 from ..stages import PIPELINE, Stage
 from .style import (
     BASELINE,
+    DIMMED_ALPHA,
+    HIGHLIGHT_EDGE_WIDTH,
     INK_PRIMARY,
     INK_SECONDARY,
     OUTCOME_COLORS,
@@ -24,6 +27,7 @@ from .style import (
     HoverTarget,
     attach_hover,
     bullet_list,
+    draw_subtitle,
     new_figure,
     plural,
     style_bar_axes,
@@ -105,12 +109,21 @@ def waterfall_steps(
     return steps
 
 
+def _contains(step: WaterfallStep, application: Application) -> bool:
+    return any(a.id == application.id for a in step.applications)
+
+
 def build_outcome_waterfall_figure(
-    applications: Sequence[Application], today: date | None = None
+    applications: Sequence[Application],
+    today: date | None = None,
+    highlight: Application | None = None,
 ) -> Figure:
+    """With `highlight`, the steps that application is part of stand out,
+    with its own unit in them outlined."""
     figure, axes = new_figure()
     total = len(applications)
     steps = waterfall_steps(applications, today)
+    picked_steps = []
 
     label_gap = max(total * 0.02, 0.15)
     running_total = total
@@ -122,15 +135,32 @@ def build_outcome_waterfall_figure(
             bottom, top = running_total - step.count, running_total
             value_text = f"−{step.count}" if step.count else "0"
             running_total -= step.count
+        # Every application is in the first total; marking it there says
+        # nothing.
+        picked = highlight is not None and x > 0 and _contains(step, highlight)
+        dimmed = highlight is not None and x > 0 and not picked
+        if picked:
+            picked_steps.append(step)
         if step.count:
             (bar,) = axes.bar(
                 x,
                 top - bottom,
                 bottom=bottom,
                 width=BAR_WIDTH,
-                color=step.color,
+                color=to_rgba(step.color, DIMMED_ALPHA if dimmed else 1),
                 zorder=3,
             )
+            if picked:
+                axes.bar(
+                    x,
+                    1,
+                    bottom=bottom,
+                    width=BAR_WIDTH,
+                    fill=False,
+                    edgecolor=INK_PRIMARY,
+                    linewidth=HIGHLIGHT_EDGE_WIDTH,
+                    zorder=4,
+                )
             names = bullet_list(
                 [a.company or a.job_title or a.id for a in step.applications]
             )
@@ -163,9 +193,14 @@ def build_outcome_waterfall_figure(
     axes.set_title(
         f"Application Outcomes  ·  {total} applied → "
         f"{plural(offers, 'offer')} ({offer_rate})",
-        pad=12,
+        pad=22 if highlight else 12,
         **TITLE_STYLE,
     )
+    if highlight is not None:
+        where = " · ".join(
+            step.label.replace("\n", " ") for step in picked_steps
+        )
+        draw_subtitle(axes, f"■ {highlight.display_name}  →  {where}")
     axes.set_xticks(range(len(steps)))
     axes.set_xticklabels(
         [step.label for step in steps],

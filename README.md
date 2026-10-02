@@ -111,6 +111,9 @@ The main window shows your applications above a chart.
   Empty values always go last. Salaries sort by amount, and statuses in
   pipeline order.
 - **Edit** an application by double-clicking its row.
+- **Highlight** an application in the chart below by selecting its row:
+  the parts of the chart it belongs to stand out, outlined, and the rest
+  fades.
 - **Select several rows** with ⌘-click (Ctrl-click on Windows/Linux) or
   Shift-click, then press **Timeline** to compare them.
 - **Refresh** reloads the CSV, handy if you edited it in another program.
@@ -222,7 +225,8 @@ total duration.
 
 ![Timeline of selected applications](docs/screenshots/timeline.png)
 
-Long timelines scroll; the dates stay in view at the top.
+Long timelines scroll; the dates stay in view at the top. Ghosted
+applications are marked in purple.
 
 ### Company logos
 

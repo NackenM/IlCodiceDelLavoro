@@ -69,17 +69,21 @@ MIN_DAY_LABEL_SHARE = 0.035
 # stagger marker labels that would overlap.
 CHARACTER_WIDTH_SHARE = 0.013
 # Marker labels go on the first of these lines below the marker where they
-# fit next to the labels already there.
+# fit next to the labels already there; day counts sit above the line.
+# Offsets in points, so they hold however tall the rows are drawn.
 LABEL_LINES = 3
-LABEL_LINE_HEIGHT = 0.22
+LABEL_OFFSET_POINTS = 7
+LABEL_LINE_POINTS = 10.5
+DAY_COUNT_OFFSET_POINTS = 5
 # Room left of the earliest marker, as a share of the time axis, so its
 # centered label stays clear of the row labels; and the gap in points
 # between those row labels and the plot.
 LEFT_MARGIN_SHARE = 0.07
 ROW_LABEL_PAD = 14
 # The figure grows by this much per application, so many of them make a
-# tall figure to scroll through rather than squeezed rows.
-ROW_HEIGHT_INCHES = 0.62
+# tall figure to scroll through rather than squeezed rows. It holds the day
+# counts above a row's line and all three label lines below it (~55 pt).
+ROW_HEIGHT_INCHES = 0.8
 FRAME_HEIGHT_INCHES = 0.5
 # The fixed strip above: the title, the dates below it, and under those a
 # short stretch of plot that carries the today label.
@@ -87,6 +91,7 @@ HEADER_HEIGHT_INCHES = 0.95
 HEADER_PLOT_HEIGHT_INCHES = 0.25
 DASHED = (0, (3, 2))
 TODAY_COLOR = OUTCOME_COLORS[Outcome.REJECTED_AFTER_STAGE]
+GHOSTED_COLOR = OUTCOME_COLORS[Outcome.GHOSTED]
 # Row labels wrap at this many characters: the company on its own line,
 # the job title on up to two more.
 ROW_LABEL_WIDTH = 28
@@ -117,10 +122,11 @@ def _draw_gaps(
     for earlier, later in pairwise(events):
         gap_days = (later.day - earlier.day).days
         if gap_days and gap_days / span_days >= MIN_DAY_LABEL_SHARE:
-            axes.text(
-                earlier.day + (later.day - earlier.day) / 2,
-                y - 0.14,
+            axes.annotate(
                 f"{gap_days}d",
+                (earlier.day + (later.day - earlier.day) / 2, y),
+                xytext=(0, DAY_COUNT_OFFSET_POINTS),
+                textcoords="offset points",
                 ha="center",
                 va="bottom",
                 fontsize=TEXT_SMALL,
@@ -176,10 +182,11 @@ def _draw_markers(
             line_ends.index(min(line_ends)),
         )
         line_ends[line] = right
-        axes.text(
-            event.day,
-            y + 0.2 + line * LABEL_LINE_HEIGHT,
+        axes.annotate(
             label,
+            (event.day, y),
+            xytext=(0, -(LABEL_OFFSET_POINTS + line * LABEL_LINE_POINTS)),
+            textcoords="offset points",
             ha="center",
             va="top",
             fontsize=TEXT_SMALL,
@@ -202,14 +209,17 @@ def _draw_summary(
     events: list[StageEvent],
     today: date,
 ) -> None:
-    """Total duration; open applications get a dashed tail up to today."""
+    """Total duration; open applications get a dashed tail up to today.
+    A ghosted one's tail and summary are in the ghosted color, to stand
+    out."""
     first_day, last_day = events[0].day, events[-1].day
     outcome = classify(application, today)
+    ghosted = outcome is Outcome.GHOSTED
     if outcome in OPEN_OUTCOMES and today > last_day:
         axes.plot(
             [last_day, today],
             [y, y],
-            color=BASELINE,
+            color=GHOSTED_COLOR if ghosted else BASELINE,
             linewidth=1.6,
             linestyle=DASHED,
             zorder=2,
@@ -226,7 +236,7 @@ def _draw_summary(
         textcoords="offset points",
         va="center",
         fontsize=TEXT_SMALL,
-        color=INK_SECONDARY,
+        color=GHOSTED_COLOR if ghosted else INK_SECONDARY,
     )
 
 

@@ -219,3 +219,38 @@ def test_charts_render_with_company_logos():
             SAMPLE, TODAY, logos=initials_tile
         )
     )
+
+
+def _subtitle(figure):
+    (axes,) = figure.axes
+    texts = [text.get_text() for text in axes.texts]
+    return next(text for text in texts if text.startswith("■"))
+
+
+@pytest.mark.parametrize("picked", SAMPLE)
+def test_waterfall_names_the_highlighted_application(picked):
+    figure = charts.build_outcome_waterfall_figure(
+        SAMPLE, TODAY, highlight=picked
+    )
+    render(figure)
+    assert _subtitle(figure).startswith(f"■ {picked.display_name}  →  ")
+
+
+def test_waterfall_highlight_names_where_it_ended():
+    rejected = SAMPLE[1]  # rejected after the 1st round
+    figure = charts.build_outcome_waterfall_figure(
+        SAMPLE, TODAY, highlight=rejected
+    )
+    assert _subtitle(figure).endswith("→  Rejected after 1st Round")
+
+
+def test_progress_outlines_only_the_highlighted_application():
+    picked = SAMPLE[0]
+    figure = charts.build_progress_figure(SAMPLE, highlight=picked)
+    render(figure)
+    (axes,) = figure.axes
+    outlined = [p for p in axes.patches if p.get_linewidth() == 2]
+    assert len(outlined) == sum(picked.has_reached(stage) for stage in Stage)
+    assert _subtitle(figure) == (
+        f"■ {picked.display_name}  →  {picked.status_label()}"
+    )
