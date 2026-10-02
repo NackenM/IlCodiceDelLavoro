@@ -21,9 +21,12 @@ from .style import (
     INK_SECONDARY,
     OUTCOME_COLORS,
     SURFACE,
+    TEXT_BODY,
+    TEXT_SMALL,
     TITLE_STYLE,
     HoverTarget,
     attach_hover,
+    bullet_list,
     new_figure,
     plural,
     show_empty_message,
@@ -56,7 +59,7 @@ def _draw_donut_center(axes, headline: str, caption: str) -> None:
         caption,
         ha="center",
         va="center",
-        fontsize=8.5,
+        fontsize=TEXT_SMALL,
         color=INK_SECONDARY,
     )
 
@@ -91,7 +94,7 @@ def build_success_rate_figure(
         labels=[f"{outcome}  {counts[outcome]}" for outcome in shown],
         labeldistance=1.12,
         wedgeprops=DONUT_WEDGE_STYLE,
-        textprops={"fontsize": 8.5},
+        textprops={"fontsize": TEXT_BODY},
     )
     for outcome, label in zip(shown, labels, strict=True):
         is_targeted = outcome in targeted
@@ -142,7 +145,7 @@ def build_company_outcomes_figure(
                 linewidth=1.5,
                 zorder=3,
             )
-            titles = "\n".join(f"• {a.job_title or a.id}" for a in members)
+            titles = bullet_list([a.job_title or a.id for a in members])
             hover_targets.append(
                 HoverTarget(
                     segment,
@@ -156,7 +159,7 @@ def build_company_outcomes_figure(
             str(left),
             ha="left",
             va="center",
-            fontsize=9,
+            fontsize=TEXT_BODY,
             color=INK_PRIMARY,
         )
 
@@ -168,7 +171,7 @@ def build_company_outcomes_figure(
         loc="upper left",
         bbox_to_anchor=(1.01, 1),
         frameon=False,
-        fontsize=7.5,
+        fontsize=TEXT_SMALL,
         labelcolor=INK_SECONDARY,
         handlelength=1.2,
     )
@@ -185,7 +188,7 @@ def build_company_outcomes_figure(
         1.02,
         "  ·  ".join(subtitle),
         transform=axes.transAxes,
-        fontsize=8.5,
+        fontsize=TEXT_BODY,
         color=INK_SECONDARY,
         va="bottom",
     )
@@ -193,13 +196,13 @@ def build_company_outcomes_figure(
     axes.set_yticks(range(len(shown)))
     axes.set_yticklabels(
         [truncate(group.name) for group in shown],
-        fontsize=8.5,
+        fontsize=TEXT_BODY,
         color=INK_SECONDARY,
     )
     axes.invert_yaxis()
     axes.set_xlim(0, widest * 1.12)
     axes.xaxis.get_major_locator().set_params(integer=True)
-    axes.set_xlabel("Applications", fontsize=9, color=INK_SECONDARY)
+    axes.set_xlabel("Applications", fontsize=TEXT_BODY, color=INK_SECONDARY)
     style_bar_axes(axes, value_axis="x")
     attach_hover(figure, axes, hover_targets)
 
@@ -283,7 +286,7 @@ def build_company_share_figure(
         loc="center left",
         bbox_to_anchor=(1.0, 0.5),
         frameon=False,
-        fontsize=8,
+        fontsize=TEXT_SMALL,
         labelcolor=INK_SECONDARY,
         handlelength=1.2,
     )
@@ -291,7 +294,7 @@ def build_company_share_figure(
         HoverTarget(
             wedge,
             f"{s.label}  —  {s.count} of {total} ({s.count / total:.0%})\n"
-            + "\n".join(f"• {line}" for line in s.tooltip_lines),
+            + bullet_list(s.tooltip_lines),
         )
         for wedge, s in zip(wedges, slices, strict=True)
     ]

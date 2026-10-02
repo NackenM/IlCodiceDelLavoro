@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import csv
-from collections.abc import Callable, Iterable
-from dataclasses import replace
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
 from . import legacy_migration
 from .csv_columns import ALL_COLUMNS, ROUND_TAG_COLUMNS, STAGE_DATE_COLUMNS
 from .model import Application, RoundTags
-from .stages import PIPELINE, RoundFocus, RoundFormat, Stage
+from .stages import RoundFocus, RoundFormat, Stage
 
 DEFAULT_CSV_PATH = (
     Path(__file__).resolve().parent.parent / "data" / "applications.csv"
@@ -28,29 +27,23 @@ class ApplicationNotFoundError(KeyError):
 class ApplicationRepository:
     """All applications, stored as one CSV row each (dates as ISO)."""
 
-    def __init__(
-        self,
-        csv_path: Path = DEFAULT_CSV_PATH,
-        today: Callable[[], date] = date.today,
-    ):
+    def __init__(self, csv_path: Path = DEFAULT_CSV_PATH):
         self.csv_path = csv_path
-        self._today = today
 
     def load_all(self) -> list[Application]:
         rows = self._read_rows()
         return [application_from_row(row) for row in rows]
 
     def add(self, application: Application) -> Application:
-        saved = replace(application, last_update=self._today())
-        self._write_all([*self.load_all(), saved])
-        return saved
+        self._write_all([*self.load_all(), application])
+        return application
 
     def update(self, application: Application) -> Application:
         applications = self.load_all()
         index = self._index_of(applications, application.id)
-        applications[index] = replace(application, last_update=self._today())
+        applications[index] = application
         self._write_all(applications)
-        return applications[index]
+        return application
 
     def delete(self, application_id: str) -> None:
         applications = self.load_all()
@@ -124,14 +117,25 @@ def _parse_enum[E: (RoundFormat, RoundFocus)](
         return None
 
 
-def _parse_status(text: str, stage_dates: dict[Stage, date]) -> Stage:
-    """The stored status; an unknown one falls back to the furthest stage
-    reached."""
+def _date_for_undated_status(
+    status_text: str,
+    stage_dates: dict[Stage, date],
+    last_update: date | None,
+) -> dict[Stage, date]:
+    """Files written before the status followed the dates could hold a
+    status without its date. Keep it by dating it at the last update, so
+    it stays the current status."""
     try:
-        return Stage(text)
+        status = Stage(status_text)
     except ValueError:
-        reached = [stage for stage in PIPELINE if stage in stage_dates]
-        return reached[-1] if reached else Stage.APPLIED
+        return {}
+    # Applied is the status of every undated application; inventing an
+    # applied date for it would be wrong.
+    if status in stage_dates or status is Stage.APPLIED or not last_update:
+        return {}
+    if stage_dates and last_update < max(stage_dates.values()):
+        return {}
+    return {status: last_update}
 
 
 def application_from_row(row: dict[str, str]) -> Application:
@@ -154,11 +158,15 @@ def application_from_row(row: dict[str, str]) -> Application:
         )
         != RoundTags()
     }
+    # The stored last update only serves old files here; otherwise it
+    # follows from the stage dates.
+    stage_dates |= _date_for_undated_status(
+        text("status"), stage_dates, _parse_iso_date(text("last_update"))
+    )
     return Application(
         id=text("id"),
         job_title=text("job_title"),
         company=text("company"),
-        status=_parse_status(text("status"), stage_dates),
         stage_dates=stage_dates,
         round_tags=round_tags,
         contact_email=text("contact_email"),
@@ -166,7 +174,6 @@ def application_from_row(row: dict[str, str]) -> Application:
         job_description=row.get("job_description") or "",
         salary=text("salary"),
         notes=text("notes"),
-        last_update=_parse_iso_date(text("last_update")),
     )
 
 

@@ -11,7 +11,8 @@ from .model import Application
 from .stages import PIPELINE, Stage
 
 # An application without any reply counts as ghosted once it is this old;
-# younger ones are still awaiting a reply.
+# younger ones are still awaiting a reply. Later on, ghosting is marked by
+# hand with a Ghosted date.
 GHOSTED_AFTER_DAYS = 30
 
 
@@ -73,14 +74,24 @@ def classify(application: Application, today: date | None = None) -> Outcome:
             if got_past_application
             else Outcome.REJECTED_RIGHT_AWAY
         )
+    if application.status is Stage.GHOSTED or is_silently_ghosted(
+        application, today
+    ):
+        return Outcome.GHOSTED
     if got_past_application:
         return Outcome.IN_PROGRESS
-    applied = application.date_applied
-    if applied is None:  # can't tell how long it has been
-        return Outcome.AWAITING_REPLY
-    if (today - applied).days >= GHOSTED_AFTER_DAYS:
-        return Outcome.GHOSTED
     return Outcome.AWAITING_REPLY
+
+
+def is_silently_ghosted(application: Application, today: date) -> bool:
+    """Applied at least GHOSTED_AFTER_DAYS ago and nothing since. Without
+    an applied date there is no telling how long it has been."""
+    applied = application.date_applied
+    return (
+        application.status is Stage.APPLIED
+        and applied is not None
+        and (today - applied).days >= GHOSTED_AFTER_DAYS
+    )
 
 
 def rejection_stage(application: Application) -> Stage:

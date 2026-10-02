@@ -20,6 +20,7 @@ class Stage(StrEnum):
     ROUND_2 = "Interview - 2nd Round"
     ROUND_3 = "Interview - 3rd Round"
     REJECTED = "Rejected"
+    GHOSTED = "Ghosted"
     OFFER = "Offer"
 
     @property
@@ -28,9 +29,9 @@ class Stage(StrEnum):
         return self.value.removeprefix("Interview - ")
 
 
-# The forward pipeline. The coding challenge (optional, between rounds) and
-# rejection (an exit reachable from any stage) are side stages outside it,
-# so skipping them never looks like a stalled pipeline.
+# The forward pipeline. The coding challenge (optional, between rounds),
+# rejection and ghosting (exits reachable from any stage) are side stages
+# outside it, so skipping them never looks like a stalled pipeline.
 PIPELINE = (
     Stage.APPLIED,
     Stage.ONLINE_ASSESSMENT,

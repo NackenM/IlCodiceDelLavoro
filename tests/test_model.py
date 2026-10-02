@@ -47,7 +47,45 @@ class TestStatusLabel:
         )
 
     def test_other_stages_are_shown_as_is(self):
-        assert make_application(status=Stage.OFFER).status_label() == "Offer"
+        application = make_application(dates={Stage.OFFER: "2026-09-01"})
+        assert application.status_label() == "Offer"
+
+
+class TestStatus:
+    def test_applied_without_any_date(self):
+        assert Application().status is Stage.APPLIED
+
+    def test_latest_dated_stage(self):
+        application = make_application(
+            dates={
+                Stage.APPLIED: "2026-09-01",
+                Stage.ROUND_2: "2026-09-20",
+                Stage.ROUND_1: "2026-09-10",
+            }
+        )
+        assert application.status is Stage.ROUND_2
+
+    def test_coding_challenge_after_the_round(self):
+        application = make_application(
+            dates={
+                Stage.ROUND_1: "2026-09-10",
+                Stage.CODING_CHALLENGE: "2026-09-12",
+            }
+        )
+        assert application.status is Stage.CODING_CHALLENGE
+
+    @pytest.mark.parametrize("exit_stage", [Stage.REJECTED, Stage.GHOSTED])
+    def test_exit_on_the_day_of_a_round_wins(self, exit_stage):
+        application = make_application(
+            dates={Stage.ROUND_1: "2026-09-10", exit_stage: "2026-09-10"}
+        )
+        assert application.status is exit_stage
+
+    def test_new_round_after_ghosting_reopens_it(self):
+        application = make_application(
+            dates={Stage.GHOSTED: "2026-09-10", Stage.ROUND_1: "2026-09-20"}
+        )
+        assert application.status is Stage.ROUND_1
 
 
 @pytest.mark.parametrize(
@@ -82,24 +120,18 @@ def test_no_coding_challenge_has_no_position():
 
 class TestFurthestPipelineIndex:
     def test_nothing_reached(self):
-        application = Application(status=Stage.REJECTED)
-        assert application.furthest_pipeline_index() == -1
+        assert Application().furthest_pipeline_index() == -1
 
     def test_uses_dates(self):
         application = make_application(
-            status=Stage.REJECTED,
-            dates={Stage.APPLIED: "2026-09-01", Stage.ROUND_2: "2026-09-10"},
+            dates={
+                Stage.APPLIED: "2026-09-01",
+                Stage.ROUND_2: "2026-09-10",
+                Stage.REJECTED: "2026-09-15",
+            },
         )
         assert application.furthest_pipeline_index() == PIPELINE.index(
             Stage.ROUND_2
-        )
-
-    def test_uses_status_without_a_date(self):
-        application = make_application(
-            status=Stage.ROUND_3, dates={Stage.APPLIED: "2026-09-01"}
-        )
-        assert application.furthest_pipeline_index() == PIPELINE.index(
-            Stage.ROUND_3
         )
 
     def test_side_stages_do_not_count(self):
@@ -110,6 +142,18 @@ class TestFurthestPipelineIndex:
             }
         )
         assert application.furthest_pipeline_index() == 0
+
+
+def test_last_update_is_the_latest_stage_date():
+    assert make_application().last_update is None
+    application = make_application(
+        dates={
+            Stage.APPLIED: "2026-09-01",
+            Stage.REJECTED: "2026-09-20",
+            Stage.ROUND_1: "2026-09-08",
+        }
+    )
+    assert application.last_update == date(2026, 9, 20)
 
 
 def test_stage_events_group_same_day_stages_in_order():

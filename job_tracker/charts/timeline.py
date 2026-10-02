@@ -1,8 +1,10 @@
 """Timeline: one row per application, a marker per stage reached, the days
-between consecutive stages, and a dashed tail up to today while open."""
+between consecutive stages, and a dashed tail up to today while open; a
+red line marks today."""
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Sequence
 from datetime import date, timedelta
 from itertools import pairwise
@@ -21,13 +23,14 @@ from .style import (
     INK_SECONDARY,
     OUTCOME_COLORS,
     SURFACE,
+    TEXT_BODY,
+    TEXT_SMALL,
     TITLE_STYLE,
     HoverTarget,
     attach_hover,
     new_figure,
     plural,
     show_empty_message,
-    truncate,
 )
 
 MARKER_LABELS = {
@@ -38,6 +41,7 @@ MARKER_LABELS = {
     Stage.ROUND_3: "3rd",
     Stage.CODING_CHALLENGE: "CC",
     Stage.REJECTED: "Rejected",
+    Stage.GHOSTED: "Ghosted",
     Stage.OFFER: "Offer",
 }
 INTERVIEW_COLOR = "#2a78d6"
@@ -49,6 +53,7 @@ MARKER_COLORS = {
     Stage.ROUND_3: INTERVIEW_COLOR,
     Stage.CODING_CHALLENGE: "#4a3aa7",
     Stage.REJECTED: OUTCOME_COLORS[Outcome.REJECTED_AFTER_STAGE],
+    Stage.GHOSTED: OUTCOME_COLORS[Outcome.GHOSTED],
     Stage.OFFER: OUTCOME_COLORS[Outcome.OFFER],
 }
 # Day counts on segments narrower than this share of the time axis are left
@@ -56,8 +61,34 @@ MARKER_COLORS = {
 MIN_DAY_LABEL_SHARE = 0.035
 # Rough width of one label character as a share of the time axis, used to
 # stagger marker labels that would overlap.
-CHARACTER_WIDTH_SHARE = 0.011
+CHARACTER_WIDTH_SHARE = 0.013
+# Marker labels go on the first of these lines below the marker where they
+# fit next to the labels already there.
+LABEL_LINES = 3
+LABEL_LINE_HEIGHT = 0.17
+# Room left of the earliest marker, as a share of the time axis, so its
+# centered label stays clear of the row labels; and the gap in points
+# between those row labels and the plot.
+LEFT_MARGIN_SHARE = 0.07
+ROW_LABEL_PAD = 14
 DASHED = (0, (3, 2))
+TODAY_COLOR = OUTCOME_COLORS[Outcome.REJECTED_AFTER_STAGE]
+# Row labels wrap at this many characters: the company on its own line,
+# the job title on up to two more.
+ROW_LABEL_WIDTH = 28
+
+
+def row_label(application: Application) -> str:
+    """Company and job title on separate lines, long ones wrapped."""
+    if not (application.company.strip() or application.job_title.strip()):
+        return application.id
+    lines = textwrap.wrap(
+        application.company, ROW_LABEL_WIDTH, max_lines=1, placeholder="…"
+    )
+    lines += textwrap.wrap(
+        application.job_title, ROW_LABEL_WIDTH, max_lines=2, placeholder="…"
+    )
+    return "\n".join(lines)
 
 
 def marker_label(event: StageEvent) -> str:
@@ -78,7 +109,7 @@ def _draw_gaps(
                 f"{gap_days}d",
                 ha="center",
                 va="bottom",
-                fontsize=7.5,
+                fontsize=TEXT_SMALL,
                 color=INK_SECONDARY,
                 zorder=5,
             )
@@ -105,10 +136,10 @@ def _draw_markers(
     span_days: int,
 ) -> list[HoverTarget]:
     """A dot per event with its stage label; labels that would run into the
-    previous one are stepped down a line."""
+    labels before them are stepped down a line."""
     hover_targets = []
-    stepped_down = False
-    previous: tuple[date, str] | None = None
+    # Per line, where its last label ends, as a share of the time axis.
+    line_ends = [float("-inf")] * LABEL_LINES
     for event in events:
         color = MARKER_COLORS[event.stages[-1]]
         (marker,) = axes.plot(
@@ -122,21 +153,22 @@ def _draw_markers(
             zorder=4,
         )
         label = marker_label(event)
-        if previous is not None:
-            previous_day, previous_label = previous
-            room_needed = (
-                (len(previous_label) + len(label)) / 2 + 2
-            ) * CHARACTER_WIDTH_SHARE
-            crowded = (event.day - previous_day).days / span_days < room_needed
-            stepped_down = not stepped_down if crowded else False
-        previous = (event.day, label)
+        center = (event.day - events[0].day).days / span_days
+        half_width = (len(label) / 2 + 1) * CHARACTER_WIDTH_SHARE
+        left, right = center - half_width, center + half_width
+        line = next(
+            (i for i, end in enumerate(line_ends) if end <= left),
+            # No line has room: overlap where the most is left.
+            line_ends.index(min(line_ends)),
+        )
+        line_ends[line] = right
         axes.text(
             event.day,
-            y + 0.2 + (0.17 if stepped_down else 0),
+            y + 0.2 + line * LABEL_LINE_HEIGHT,
             label,
             ha="center",
             va="top",
-            fontsize=7.5,
+            fontsize=TEXT_SMALL,
             color=color,
             zorder=5,
         )
@@ -168,7 +200,7 @@ def _draw_summary(
             linestyle=DASHED,
             zorder=2,
         )
-        summary = f"{(today - first_day).days}d so far · {outcome.lower()}"
+        summary = f"{(today - first_day).days}d so far\n{outcome.lower()}"
         summary_day = today
     else:
         summary = f"{(last_day - first_day).days}d in total"
@@ -179,8 +211,23 @@ def _draw_summary(
         xytext=(9, 0),
         textcoords="offset points",
         va="center",
-        fontsize=7.5,
+        fontsize=TEXT_SMALL,
         color=INK_SECONDARY,
+    )
+
+
+def _draw_today(axes: Axes, today: date) -> None:
+    axes.axvline(today, color=TODAY_COLOR, linewidth=1.2, zorder=1)
+    axes.annotate(
+        "Today",
+        (today, 1.0),
+        xycoords=("data", "axes fraction"),
+        xytext=(0, 3),
+        textcoords="offset points",
+        ha="center",
+        va="bottom",
+        fontsize=TEXT_SMALL,
+        color=TODAY_COLOR,
     )
 
 
@@ -197,9 +244,8 @@ def build_timeline_figure(
         )
         return figure
 
-    any_open = any(classify(a, today) in OPEN_OUTCOMES for a in applications)
     start = min(all_days)
-    end = max([*all_days, today] if any_open else all_days)
+    end = max([*all_days, today])
     span_days = max((end - start).days, 1)
 
     marker_targets, gap_targets = [], []
@@ -212,7 +258,7 @@ def build_timeline_figure(
                 y,
                 "  no stage dates",
                 va="center",
-                fontsize=8,
+                fontsize=TEXT_SMALL,
                 color=INK_MUTED,
             )
             continue
@@ -229,17 +275,18 @@ def build_timeline_figure(
             axes, y, application, events, span_days
         )
 
+    _draw_today(axes, today)
     axes.set_yticks(range(len(applications)))
     axes.set_yticklabels(
-        [truncate(a.display_name) for a in applications],
-        fontsize=8.5,
+        [row_label(a) for a in applications],
+        fontsize=TEXT_BODY,
         color=INK_SECONDARY,
     )
     axes.set_ylim(len(applications) - 0.35, -0.6)  # first one on top
     # Room on the right for the "Nd so far" summaries.
     axes.set_xlim(
-        start - timedelta(days=span_days * 0.03),
-        end + timedelta(days=span_days * 0.22),
+        start - timedelta(days=span_days * LEFT_MARGIN_SHARE),
+        end + timedelta(days=span_days * 0.16),
     )
     axes.xaxis.set_major_formatter(DateFormatter("%d.%m."))
     axes.grid(axis="x", color=GRIDLINE, linewidth=0.8, zorder=0)
@@ -247,7 +294,8 @@ def build_timeline_figure(
     for name, spine in axes.spines.items():
         spine.set_visible(name == "bottom")
         spine.set_color(BASELINE)
-    axes.tick_params(colors=INK_MUTED, length=0, labelsize=8)
+    axes.tick_params(colors=INK_SECONDARY, length=0, labelsize=TEXT_BODY)
+    axes.tick_params(axis="y", pad=ROW_LABEL_PAD)
     axes.set_title(
         f"Timeline  ·  {plural(len(applications), 'application')}",
         pad=12,

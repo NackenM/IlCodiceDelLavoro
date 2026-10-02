@@ -54,11 +54,20 @@ STAGE_AXIS_LABELS = {
     Stage.ROUND_3: "3rd Round",
     Stage.CODING_CHALLENGE: "Coding\nChallenge",
     Stage.REJECTED: "Rejected",
+    Stage.GHOSTED: "Ghosted",
     Stage.OFFER: "Offer",
 }
 
 LABEL_MAX_LENGTH = 30
-TITLE_STYLE = {"fontsize": 11, "color": INK_PRIMARY, "loc": "left"}
+# Text sizes, in points. The Tk canvas shows charts at standard resolution,
+# so on a Retina display they are scaled up and soften; nothing is set
+# smaller than TEXT_SMALL to keep them readable there.
+TEXT_SMALL = 9  # legends, tooltips, labels on the plot
+TEXT_BODY = 10  # tick and axis labels, bar values
+TEXT_TITLE = 12
+TITLE_STYLE = {"fontsize": TEXT_TITLE, "color": INK_PRIMARY, "loc": "left"}
+# Tooltips list at most this many entries; the rest are counted.
+TOOLTIP_MAX_ENTRIES = 12
 
 
 def categorical_style(index: int) -> tuple[str, str]:
@@ -82,7 +91,7 @@ def show_empty_message(axes: Axes, message: str) -> None:
         message,
         ha="center",
         va="center",
-        fontsize=10,
+        fontsize=TEXT_BODY,
         color=INK_MUTED,
         transform=axes.transAxes,
     )
@@ -96,13 +105,24 @@ def style_bar_axes(axes: Axes, value_axis: str = "y") -> None:
     for name, spine in axes.spines.items():
         spine.set_visible(name in ("left", "bottom"))
         spine.set_color(BASELINE)
-    axes.tick_params(colors=INK_MUTED, length=0)
+    axes.tick_params(colors=INK_SECONDARY, labelsize=TEXT_BODY, length=0)
 
 
 def truncate(label: str, max_length: int = LABEL_MAX_LENGTH) -> str:
     if len(label) <= max_length:
         return label
     return label[: max_length - 1] + "…"
+
+
+def bullet_list(
+    entries: Sequence[str], max_entries: int = TOOLTIP_MAX_ENTRIES
+) -> str:
+    """One "• entry" line each; past `max_entries` the rest are summed up
+    in a closing "… and N more" line."""
+    lines = [f"• {entry}" for entry in entries[:max_entries]]
+    if len(entries) > max_entries:
+        lines.append(f"… and {len(entries) - max_entries} more")
+    return "\n".join(lines)
 
 
 def plural(count: int, singular: str, plural_form: str | None = None) -> str:
@@ -129,7 +149,7 @@ def attach_hover(
         xy=(0, 0),
         xytext=(12, 12),
         textcoords="offset points",
-        fontsize=8,
+        fontsize=TEXT_SMALL,
         color=INK_PRIMARY,
         zorder=10,
         bbox={"boxstyle": "round,pad=0.4", "fc": SURFACE, "ec": BASELINE},

@@ -25,7 +25,13 @@ from ..stages import (
     Stage,
 )
 from .company_field import CompanyCombobox
-from .form_widgets import HINT_COLOR, LabeledForm, ScrolledText
+from .date_picker import DatePickerButton
+from .form_widgets import (
+    HINT_COLOR,
+    LabeledForm,
+    ScrolledText,
+    size_to_content,
+)
 from .today_shortcut import TODAY_TOKEN, enable_today_shortcut, today_display
 
 
@@ -54,8 +60,6 @@ class EditApplicationDialog(tk.Toplevel):
     ):
         super().__init__(parent)
         self.title(f"Edit Application -- {application.job_title}")
-        self.geometry("760x860")
-        self.minsize(560, 560)
         self.transient(parent)
         self.grab_set()
         self.repository = repository
@@ -68,6 +72,7 @@ class EditApplicationDialog(tk.Toplevel):
         ttk.Separator(self).pack(fill="x", padx=10, pady=8)
         self._build_description_and_notes()
         self._build_buttons()
+        size_to_content(self, height=940)
 
     def _build_details(self, known_companies: list[str]) -> None:
         application = self.application
@@ -86,24 +91,10 @@ class EditApplicationDialog(tk.Toplevel):
         self.salary = tk.StringVar(value=application.salary)
         form.add_salary(self.salary)
 
-        self.status = tk.StringVar(value=application.status)
-        form.add_row(
-            "Current status",
-            ttk.Combobox(
-                form,
-                textvariable=self.status,
-                values=[stage.value for stage in Stage],
-                state="readonly",
-            ),
-        )
-        last_update = format_display_date(application.last_update) or "--"
-        form.add_row(
-            "Last update",
-            ttk.Label(
-                form, text=f"{last_update}  (set automatically on save)"
-            ),
-            stretch=False,
-        )
+        self.status = ttk.Label(form)
+        form.add_row("Current status", self.status)
+        self.last_update = ttk.Label(form)
+        form.add_row("Last update", self.last_update, stretch=False)
 
     def _build_stage_dates(self) -> None:
         ttk.Label(
@@ -134,12 +125,15 @@ class EditApplicationDialog(tk.Toplevel):
             entry = ttk.Entry(grid, textvariable=date_text, width=12)
             entry.grid(row=row, column=1, padx=(8, 0), pady=3)
             enable_today_shortcut(entry)
+            buttons = ttk.Frame(grid)
+            buttons.grid(row=row, column=2, padx=(4, 0), pady=3)
             ttk.Button(
-                grid,
+                buttons,
                 text="Today",
                 width=6,
                 command=lambda var=date_text: var.set(today_display()),
-            ).grid(row=row, column=2, padx=(4, 0), pady=3)
+            ).pack(side="left")
+            DatePickerButton(buttons, date_text).pack(side="left", padx=(2, 0))
 
             if stage in INTERVIEW_ROUNDS:
                 self.round_tag_fields[stage] = self._build_round_tag_fields(
@@ -153,12 +147,11 @@ class EditApplicationDialog(tk.Toplevel):
                     row=row, column=3, sticky="w", padx=(12, 0)
                 )
 
-        # Keep "-> after 1st Round" in step with the dates as they are typed.
-        for stage in (*INTERVIEW_ROUNDS, Stage.CODING_CHALLENGE):
-            self.stage_dates[stage].trace_add(
-                "write", lambda *_: self._show_coding_challenge_position()
-            )
-        self._show_coding_challenge_position()
+        # Keep the status and "-> after 1st Round" in step with the dates
+        # as they are typed.
+        for date_text in self.stage_dates.values():
+            date_text.trace_add("write", lambda *_: self._show_dates_preview())
+        self._show_dates_preview()
 
     @staticmethod
     def _build_round_tag_fields(
@@ -189,15 +182,15 @@ class EditApplicationDialog(tk.Toplevel):
     def _build_description_and_notes(self) -> None:
         ttk.Label(self, text="Job description").pack(anchor="w", padx=10)
         self.job_description = ScrolledText(
-            self, height=8, initial_text=self.application.job_description
+            self, height=7, initial_text=self.application.job_description
         )
         self.job_description.pack(fill="both", expand=True, padx=10)
 
         ttk.Label(self, text="Notes").pack(anchor="w", padx=10, pady=(8, 2))
-        self.notes = tk.StringVar(value=self.application.notes)
-        notes_entry = ttk.Entry(self, textvariable=self.notes)
-        notes_entry.pack(fill="x", padx=10)
-        enable_today_shortcut(notes_entry)
+        self.notes = ScrolledText(
+            self, height=4, initial_text=self.application.notes
+        )
+        self.notes.pack(fill="both", expand=True, padx=10)
 
     def _build_buttons(self) -> None:
         buttons = ttk.Frame(self)
@@ -225,8 +218,24 @@ class EditApplicationDialog(tk.Toplevel):
                     entered[stage] = day
         return entered
 
-    def _show_coding_challenge_position(self) -> None:
-        preview = Application(stage_dates=self._entered_stage_dates())
+    def _entered_round_tags(self) -> dict[Stage, RoundTags]:
+        return {
+            interview_round: tag_fields.tags()
+            for interview_round, tag_fields in self.round_tag_fields.items()
+        }
+
+    def _show_dates_preview(self) -> None:
+        preview = Application(
+            stage_dates=self._entered_stage_dates(),
+            round_tags=self._entered_round_tags(),
+        )
+        self.status.configure(
+            text=f"{preview.status_label()}  (follows the latest stage date)"
+        )
+        last_update = format_display_date(preview.last_update) or "--"
+        self.last_update.configure(
+            text=f"{last_update}  (date of the latest stage)"
+        )
         position = preview.coding_challenge_position()
         self.coding_challenge_position.configure(
             text=f"→ {position}" if position else ""
@@ -255,16 +264,10 @@ class EditApplicationDialog(tk.Toplevel):
                 contact_email=contact_email,
                 url=self.url.get().strip(),
                 salary=self.salary.get().strip(),
-                status=Stage(self.status.get()),
                 stage_dates=self._entered_stage_dates(),
-                round_tags={
-                    interview_round: tag_fields.tags()
-                    for interview_round, tag_fields in (
-                        self.round_tag_fields.items()
-                    )
-                },
+                round_tags=self._entered_round_tags(),
                 job_description=self.job_description.get(),
-                notes=self.notes.get().strip(),
+                notes=self.notes.get(),
             )
         )
         self.on_changed()

@@ -20,6 +20,8 @@ from .style import (
     INK_SECONDARY,
     STAGE_AXIS_LABELS,
     SURFACE,
+    TEXT_BODY,
+    TEXT_SMALL,
     TITLE_STYLE,
     HoverTarget,
     attach_hover,
@@ -31,7 +33,7 @@ from .style import (
 
 BAR_WIDTH = 0.62
 # Side stages drawn after the forward pipeline.
-SIDE_STAGES = (Stage.CODING_CHALLENGE, Stage.REJECTED)
+SIDE_STAGES = (Stage.CODING_CHALLENGE, Stage.REJECTED, Stage.GHOSTED)
 # Interview-round segments show the round's format: on-site rounds are
 # solid like every other stage, virtual (also the default) and phone rounds
 # a light tint of the application's color with a dashed or dotted outline.
@@ -40,8 +42,11 @@ FORMAT_OUTLINES = {
     RoundFormat.PHONE: (0, (1, 1.6)),
 }
 TINT_ALPHA = 0.3
-# The application legend stays in one column up to this many entries.
-LEGEND_ROWS_PER_COLUMN = 30
+# Past this many applications the legend no longer helps to tell them
+# apart and crowds out the plot; it is left out and the tooltips name the
+# application under the mouse instead.
+LEGEND_MAX_APPLICATIONS = 15
+HOVER_HINT = "Hover a segment to see its application"
 
 
 def shown_stages(applications: Sequence[Application]) -> list[Stage]:
@@ -87,7 +92,7 @@ def _draw_format_key(axes: Axes) -> None:
         bbox_to_anchor=(1.0, 1.0),
         ncol=3,
         frameon=False,
-        fontsize=7.5,
+        fontsize=TEXT_SMALL,
         labelcolor=INK_SECONDARY,
         handlelength=1.6,
         borderaxespad=0.3,
@@ -179,20 +184,21 @@ def build_progress_figure(applications: Sequence[Application]) -> Figure:
             str(height),
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=TEXT_BODY,
             color=INK_PRIMARY,
         )
 
     axes.set_xticks(range(len(columns)))
     axes.set_xticklabels(
         [STAGE_AXIS_LABELS[stage] for stage in columns],
-        fontsize=8.5,
+        fontsize=TEXT_BODY,
         color=INK_SECONDARY,
     )
-    axes.set_ylabel("Applications", fontsize=9, color=INK_SECONDARY)
+    axes.set_ylabel("Applications", fontsize=TEXT_BODY, color=INK_SECONDARY)
+    show_legend = len(applications) <= LEGEND_MAX_APPLICATIONS
     axes.set_title(
         f"Application Pipeline  ·  {len(applications)} total",
-        pad=12,
+        pad=12 if show_legend else 22,  # room for the hover hint
         **TITLE_STYLE,
     )
     axes.set_ylim(0, tallest * 1.18 if tallest else 1)
@@ -200,16 +206,25 @@ def build_progress_figure(applications: Sequence[Application]) -> Figure:
 
     if any_round_reached:
         _draw_format_key(axes)
-    if applications:
+    if not show_legend:
+        axes.text(
+            0,
+            1.02,
+            HOVER_HINT,
+            transform=axes.transAxes,
+            fontsize=TEXT_SMALL,
+            color=INK_SECONDARY,
+            va="bottom",
+        )
+    elif applications:
         axes.legend(
             loc="upper left",
             bbox_to_anchor=(1.01, 1),
             frameon=False,
-            fontsize=7.5,
+            fontsize=TEXT_SMALL,
             labelcolor=INK_SECONDARY,
             handlelength=1.4,
             reverse=True,
-            ncol=-(-len(applications) // LEGEND_ROWS_PER_COLUMN),
         )
     attach_hover(figure, axes, hover_targets)
 

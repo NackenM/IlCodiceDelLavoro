@@ -18,9 +18,12 @@ from .style import (
     INK_SECONDARY,
     OUTCOME_COLORS,
     STAGE_AXIS_LABELS,
+    TEXT_BODY,
+    TEXT_SMALL,
     TITLE_STYLE,
     HoverTarget,
     attach_hover,
+    bullet_list,
     new_figure,
     plural,
     style_bar_axes,
@@ -128,9 +131,8 @@ def build_outcome_waterfall_figure(
                 color=step.color,
                 zorder=3,
             )
-            names = "\n".join(
-                f"• {a.company or a.job_title or a.id}"
-                for a in step.applications
+            names = bullet_list(
+                [a.company or a.job_title or a.id for a in step.applications]
             )
             one_line_label = step.label.replace("\n", " ")
             hover_targets.append(
@@ -142,7 +144,7 @@ def build_outcome_waterfall_figure(
             value_text,
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=TEXT_BODY,
             color=INK_PRIMARY,
         )
         if x < len(steps) - 1:
@@ -166,9 +168,11 @@ def build_outcome_waterfall_figure(
     )
     axes.set_xticks(range(len(steps)))
     axes.set_xticklabels(
-        [step.label for step in steps], fontsize=7.5, color=INK_SECONDARY
+        [step.label for step in steps],
+        fontsize=TEXT_SMALL,
+        color=INK_SECONDARY,
     )
-    axes.set_ylabel("Applications", fontsize=9, color=INK_SECONDARY)
+    axes.set_ylabel("Applications", fontsize=TEXT_BODY, color=INK_SECONDARY)
     axes.set_ylim(0, total * 1.18 if total else 1)
     style_bar_axes(axes)
     attach_hover(figure, axes, hover_targets)

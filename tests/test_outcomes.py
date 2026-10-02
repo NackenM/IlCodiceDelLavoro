@@ -23,16 +23,14 @@ from .factories import TODAY, make_application
 
 
 @pytest.mark.parametrize(
-    ("dates", "status", "outcome"),
+    ("dates", "outcome"),
     [
         (
             {Stage.APPLIED: "2026-07-01", Stage.OFFER: "2026-08-01"},
-            None,
             Outcome.OFFER,
         ),
         (
             {Stage.APPLIED: "2026-07-01", Stage.REJECTED: "2026-07-03"},
-            None,
             Outcome.REJECTED_RIGHT_AWAY,
         ),
         (
@@ -41,28 +39,38 @@ from .factories import TODAY, make_application
                 Stage.ONLINE_ASSESSMENT: "2026-07-03",
                 Stage.REJECTED: "2026-07-05",
             },
-            None,
             Outcome.REJECTED_AFTER_STAGE,
         ),
         (
             {Stage.APPLIED: "2026-08-01", Stage.ROUND_1: "2026-08-10"},
-            None,
             Outcome.IN_PROGRESS,
         ),
-        ({Stage.APPLIED: "2026-08-01"}, None, Outcome.GHOSTED),
-        ({Stage.APPLIED: "2026-09-10"}, None, Outcome.AWAITING_REPLY),
-        # Rejected status without a rejection date still counts.
+        ({Stage.APPLIED: "2026-08-01"}, Outcome.GHOSTED),
+        ({Stage.APPLIED: "2026-09-10"}, Outcome.AWAITING_REPLY),
+        # Marked as ghosted after a round.
         (
-            {Stage.APPLIED: "2026-09-10"},
-            Stage.REJECTED,
-            Outcome.REJECTED_RIGHT_AWAY,
+            {
+                Stage.APPLIED: "2026-09-01",
+                Stage.ROUND_1: "2026-09-05",
+                Stage.GHOSTED: "2026-09-20",
+            },
+            Outcome.GHOSTED,
+        ),
+        # ... and in progress again once a new round is dated.
+        (
+            {
+                Stage.APPLIED: "2026-08-01",
+                Stage.GHOSTED: "2026-09-01",
+                Stage.ROUND_1: "2026-09-20",
+            },
+            Outcome.IN_PROGRESS,
         ),
         # No applied date: can't tell whether it's ghosted.
-        ({}, Stage.APPLIED, Outcome.AWAITING_REPLY),
+        ({}, Outcome.AWAITING_REPLY),
     ],
 )
-def test_classify(dates, status, outcome):
-    application = make_application(status=status, dates=dates)
+def test_classify(dates, outcome):
+    application = make_application(dates=dates)
     assert classify(application, TODAY) is outcome
 
 

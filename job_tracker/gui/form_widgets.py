@@ -9,6 +9,26 @@ from .today_shortcut import enable_today_shortcut
 
 SALARY_HINT = "e.g. 65-75k € / year"
 HINT_COLOR = "#52514e"
+# Space left around a dialog that would otherwise fill the whole screen.
+SCREEN_MARGIN = 80
+
+
+def size_to_content(
+    window: tk.Toplevel, width: int = 0, height: int = 0
+) -> None:
+    """Open `window` at `width` x `height`, or larger where its content
+    needs more, but never larger than the screen. It can't be shrunk below
+    its content either, so no field ends up cut off."""
+    window.update_idletasks()
+    max_width = window.winfo_screenwidth() - SCREEN_MARGIN
+    max_height = window.winfo_screenheight() - SCREEN_MARGIN
+    needed_width = min(window.winfo_reqwidth(), max_width)
+    needed_height = min(window.winfo_reqheight(), max_height)
+    window.minsize(needed_width, needed_height)
+    window.geometry(
+        f"{min(max(width, needed_width), max_width)}"
+        f"x{min(max(height, needed_height), max_height)}"
+    )
 
 
 class LabeledForm(ttk.Frame):

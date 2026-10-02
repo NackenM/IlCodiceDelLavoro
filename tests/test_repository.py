@@ -17,7 +17,7 @@ from job_tracker.repository import (
 )
 from job_tracker.stages import RoundFocus, RoundFormat, Stage
 
-from .factories import TODAY, make_application
+from .factories import make_application
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ def csv_path(tmp_path):
 
 @pytest.fixture
 def repository(csv_path):
-    return ApplicationRepository(csv_path, today=lambda: TODAY)
+    return ApplicationRepository(csv_path)
 
 
 def write_csv(path, rows, columns):
@@ -51,7 +51,6 @@ def test_add_update_delete(repository, csv_path):
     added = repository.add(
         make_application(job_title="Dev", dates={Stage.APPLIED: "2026-09-01"})
     )
-    assert added.last_update == TODAY
     assert csv_path.exists()
     assert repository.load_all() == [added]
 
@@ -61,6 +60,7 @@ def test_add_update_delete(repository, csv_path):
     (reloaded,) = repository.load_all()
     assert reloaded.job_title == "Senior Dev"
     assert reloaded.stage_dates[Stage.ROUND_1] == date(2026, 9, 10)
+    assert reloaded.last_update == date(2026, 9, 10)
 
     repository.delete(added.id)
     assert repository.load_all() == []
@@ -77,7 +77,6 @@ def test_every_field_survives_a_round_trip(repository):
     application = make_application(
         company="Acme, Inc.",  # comma and quotes need CSV quoting
         job_title='Dev "Platform"',
-        status=Stage.ROUND_2,
         dates={
             stage: f"2026-09-{day:02d}"
             for day, stage in enumerate(Stage, start=1)
@@ -90,7 +89,7 @@ def test_every_field_survives_a_round_trip(repository):
         url="https://jobs.example/1",
         job_description="Line one\nLine two",
         salary="65-75k €",
-        notes="Referral",
+        notes="Referral by Jane\nCall back on Monday",
     )
     saved = repository.add(application)
     assert repository.load_all() == [saved]
@@ -114,10 +113,54 @@ def test_row_conversion_tolerates_bad_values():
             "round_2_focus": "HR",
         }
     )
-    # Unknown status: the furthest stage reached instead.
+    # The status follows the dates; an unknown stored one is ignored.
     assert application.status is Stage.ROUND_2
     assert Stage.ROUND_1 not in application.stage_dates
     assert application.tags_of(Stage.ROUND_2) == RoundTags(focus=RoundFocus.HR)
+
+
+def test_status_stored_without_its_date_is_dated_at_the_last_update():
+    application = application_from_row(
+        {
+            "status": "Interview - 2nd Round",
+            "date_applied": "2026-09-01",
+            "last_update": "2026-09-15",
+        }
+    )
+    assert application.stage_dates[Stage.ROUND_2] == date(2026, 9, 15)
+    assert application.status is Stage.ROUND_2
+
+
+@pytest.mark.parametrize(
+    ("row", "stage_dates"),
+    [
+        # Applied gets no invented date.
+        ({"status": "Applied", "last_update": "2026-09-15"}, {}),
+        # The dates moved on after the status was last set.
+        (
+            {
+                "status": "Interview - 1st Round",
+                "date_round_2": "2026-09-20",
+                "last_update": "2026-09-15",
+            },
+            {Stage.ROUND_2: date(2026, 9, 20)},
+        ),
+        # Nothing to date it at.
+        (
+            {"status": "Rejected", "date_applied": "2026-09-01"},
+            {Stage.APPLIED: date(2026, 9, 1)},
+        ),
+    ],
+)
+def test_stale_or_undatable_status_is_dropped(row, stage_dates):
+    assert application_from_row(row).stage_dates == stage_dates
+
+
+def test_last_update_is_written_from_the_latest_stage_date():
+    application = make_application(
+        dates={Stage.APPLIED: "2026-09-01", Stage.REJECTED: "2026-09-12"}
+    )
+    assert application_to_row(application)["last_update"] == "2026-09-12"
 
 
 def test_row_conversion_writes_blank_for_unset_values():

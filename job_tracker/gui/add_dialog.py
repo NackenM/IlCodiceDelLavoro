@@ -16,7 +16,13 @@ from ..repository import ApplicationRepository
 from ..scraper import ParsedPosting, fetch_posting
 from ..stages import Stage
 from .company_field import CompanyCombobox
-from .form_widgets import HINT_COLOR, LabeledForm, ScrolledText
+from .date_picker import DatePickerButton
+from .form_widgets import (
+    HINT_COLOR,
+    LabeledForm,
+    ScrolledText,
+    size_to_content,
+)
 from .today_shortcut import TODAY_TOKEN, enable_today_shortcut, today_display
 
 POLL_INTERVAL_MS = 100
@@ -32,8 +38,6 @@ class AddApplicationDialog(tk.Toplevel):
     ):
         super().__init__(parent)
         self.title("Add Application")
-        self.geometry("640x660")
-        self.minsize(560, 520)
         self.transient(parent)
         self.grab_set()
         self.repository = repository
@@ -50,6 +54,7 @@ class AddApplicationDialog(tk.Toplevel):
         self._build_url_row()
         self._build_form(known_companies)
         self._build_buttons()
+        size_to_content(self, 640, 660)
 
     def _build_url_row(self) -> None:
         url_frame = ttk.Frame(self)
@@ -87,6 +92,9 @@ class AddApplicationDialog(tk.Toplevel):
         )
         date_entry.pack(side="left")
         enable_today_shortcut(date_entry)
+        DatePickerButton(date_field, self.date_applied).pack(
+            side="left", padx=(4, 0)
+        )
         ttk.Label(
             date_field,
             text=f"{DISPLAY_HINT}  (type {TODAY_TOKEN} for today)",
@@ -187,7 +195,6 @@ class AddApplicationDialog(tk.Toplevel):
             Application(
                 job_title=job_title,
                 company=self.company.get().strip(),
-                status=Stage.APPLIED,
                 stage_dates=(
                     {Stage.APPLIED: date_applied} if date_applied else {}
                 ),

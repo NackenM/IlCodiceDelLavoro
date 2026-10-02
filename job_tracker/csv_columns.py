@@ -14,6 +14,7 @@ STAGE_DATE_COLUMNS: dict[Stage, str] = {
     Stage.ROUND_3: "date_round_3",
     Stage.CODING_CHALLENGE: "date_coding_challenge",
     Stage.REJECTED: "date_rejected",
+    Stage.GHOSTED: "date_ghosted",
     Stage.OFFER: "date_offer",
 }
 

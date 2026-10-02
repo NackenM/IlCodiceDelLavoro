@@ -18,6 +18,8 @@ from .stages import (
 
 NO_COMPANY = "(no company)"
 
+_STAGE_ORDER = {stage: index for index, stage in enumerate(Stage)}
+
 
 def new_application_id() -> str:
     return uuid.uuid4().hex[:8]
@@ -61,8 +63,8 @@ class StageEvent:
 class Application:
     job_title: str = ""
     company: str = ""
-    status: Stage = Stage.APPLIED
-    # The date each stage was reached, kept even after moving past it.
+    # The date each stage was reached, kept even after moving past it. The
+    # current status follows from these.
     stage_dates: dict[Stage, date] = field(default_factory=dict)
     round_tags: dict[Stage, RoundTags] = field(default_factory=dict)
     contact_email: str = ""
@@ -70,7 +72,6 @@ class Application:
     job_description: str = ""
     salary: str = ""
     notes: str = ""
-    last_update: date | None = None
     id: str = field(default_factory=new_application_id)
 
     # -- stages ------------------------------------------------------------
@@ -79,31 +80,40 @@ class Application:
     def date_applied(self) -> date | None:
         return self.stage_dates.get(Stage.APPLIED)
 
+    @property
+    def last_update(self) -> date | None:
+        """The day of the latest stage reached -- the last thing that
+        happened, be it an interview, a rejection or an offer."""
+        return max(self.stage_dates.values(), default=None)
+
     def has_reached(self, stage: Stage) -> bool:
         return stage in self.stage_dates
 
     def tags_of(self, interview_round: Stage) -> RoundTags:
         return self.round_tags.get(interview_round, RoundTags())
 
-    def furthest_pipeline_index(self) -> int:
-        """Index into PIPELINE of the furthest stage reached, -1 if none.
+    @property
+    def status(self) -> Stage:
+        """The stage reached last; on the same day the later one in
+        `Stage` order (so an exit like a rejection wins). Applied while no
+        date is set."""
+        return max(
+            self.stage_dates,
+            key=lambda stage: (self.stage_dates[stage], _STAGE_ORDER[stage]),
+            default=Stage.APPLIED,
+        )
 
-        Uses both the stage dates and the current status, since the status
-        can be changed without filling in the matching date.
-        """
+    def furthest_pipeline_index(self) -> int:
+        """Index into PIPELINE of the furthest stage reached, -1 if none."""
         reached = [
             index
             for index, stage in enumerate(PIPELINE)
             if self.has_reached(stage)
         ]
-        if self.status in PIPELINE:
-            reached.append(PIPELINE.index(self.status))
         return max(reached, default=-1)
 
     def is_rejected(self) -> bool:
-        return (
-            self.has_reached(Stage.REJECTED) or self.status is Stage.REJECTED
-        )
+        return self.has_reached(Stage.REJECTED)
 
     def coding_challenge_position(self) -> str:
         """Where the optional coding challenge fell, from the dates:

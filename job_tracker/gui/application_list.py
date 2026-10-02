@@ -5,11 +5,13 @@ from __future__ import annotations
 import tkinter as tk
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from tkinter import ttk
 from typing import Any
 
 from ..dates import format_display_date
 from ..model import Application
+from ..outcomes import is_silently_ghosted
 from ..stages import Stage
 
 _STAGE_ORDER = {stage: index for index, stage in enumerate(Stage)}
@@ -27,6 +29,22 @@ class ListColumn:
 
 def _text_sort_value(text: str) -> str | None:
     return text.casefold() or None
+
+
+def status_text(application: Application, today: date) -> str:
+    """The status label; an application left without a reply for too long
+    shows as ghosted even before it is marked so."""
+    if is_silently_ghosted(application, today):
+        days = (today - application.date_applied).days
+        return f"{Stage.GHOSTED} (no reply for {days} days)"
+    return application.status_label()
+
+
+def status_sort_value(application: Application, today: date) -> int:
+    """Pipeline order, the silently ghosted with the marked ones."""
+    if is_silently_ghosted(application, today):
+        return _STAGE_ORDER[Stage.GHOSTED]
+    return _STAGE_ORDER[application.status]
 
 
 LIST_COLUMNS = [
@@ -48,8 +66,8 @@ LIST_COLUMNS = [
         "status",
         "Status",
         220,
-        Application.status_label,
-        lambda a: _STAGE_ORDER[a.status],  # pipeline order
+        lambda a: status_text(a, date.today()),
+        lambda a: status_sort_value(a, date.today()),
     ),
     # By amount; salaries without a number ("negotiable") go last.
     ListColumn(

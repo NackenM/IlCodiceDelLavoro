@@ -4,8 +4,10 @@ import pytest
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from job_tracker import charts
-from job_tracker.charts.progress import shown_stages
+from job_tracker.charts.progress import LEGEND_MAX_APPLICATIONS, shown_stages
 from job_tracker.charts.statistics import company_share_slices
+from job_tracker.charts.style import bullet_list
+from job_tracker.charts.timeline import row_label
 from job_tracker.charts.waterfall import waterfall_steps
 from job_tracker.model import NO_COMPANY
 from job_tracker.outcomes import SUCCESS_TARGETS
@@ -118,3 +120,51 @@ def test_company_share_names_a_single_leftover_company():
     ]
     slices = company_share_slices(applications, max_slices=2)
     assert [s.label for s in slices] == ["C0", "C1", "C2"]
+
+
+def _applications(count):
+    return [
+        make_application(id=str(index), dates={Stage.APPLIED: "2026-09-01"})
+        for index in range(count)
+    ]
+
+
+def test_progress_legend_names_up_to_the_limit():
+    figure = charts.build_progress_figure(
+        _applications(LEGEND_MAX_APPLICATIONS)
+    )
+    (axes,) = figure.axes
+    legend = axes.get_legend()
+    assert len(legend.get_texts()) == LEGEND_MAX_APPLICATIONS
+
+
+def test_progress_legend_is_left_out_past_the_limit():
+    figure = charts.build_progress_figure(
+        _applications(LEGEND_MAX_APPLICATIONS + 1)
+    )
+    (axes,) = figure.axes
+    assert axes.get_legend() is None
+
+
+def test_bullet_list_counts_what_it_leaves_out():
+    assert bullet_list(["a", "b"], max_entries=3) == "• a\n• b"
+    assert bullet_list(["a", "b", "c", "d"], max_entries=2) == (
+        "• a\n• b\n… and 2 more"
+    )
+
+
+def test_timeline_row_label_puts_the_title_under_the_company():
+    application = make_application(
+        company="Acme Robotics",
+        job_title="Senior Embedded Software Engineer for Robot Perception",
+    )
+    assert row_label(application) == (
+        "Acme Robotics\nSenior Embedded Software\nEngineer for Robot…"
+    )
+
+
+def test_timeline_row_label_falls_back_to_the_id():
+    assert (
+        row_label(make_application(id="ab12", company="", job_title=""))
+        == "ab12"
+    )
