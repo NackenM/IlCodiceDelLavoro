@@ -10,16 +10,18 @@ file, so nothing leaves your machine.
 ## Features
 
 - **Application list** with sortable columns (title, company, status, salary,
-  contact, dates).
+  contact, dates); select a row to highlight it in the chart below.
 - **Add from a URL**: paste a job posting link and the app makes a best-effort
   guess at the title and description for you to review.
 - **Stage tracking**: Applied → Online Assessment → 1st / 2nd / 3rd Round →
-  Offer, plus an optional Coding Challenge and Rejected, each with its own
-  date. Interview rounds are tagged with a format (On-site, Virtual, Phone)
-  and a focus (Technical, HR, Hiring manager).
+  Offer, plus an optional Coding Challenge, Rejected and Ghosted, each with
+  its own date. The status follows the latest date. Interview rounds are
+  tagged with a format (On-site, Virtual, Phone) and a focus (Technical, HR,
+  Hiring manager).
 - **Charts**: an outcome waterfall and a per-stage progress chart in the main
-  window, success rates and company breakdowns in the Statistics window, and a
-  timeline of selected applications.
+  window; success rates, company breakdowns, reply times and an activity
+  calendar in the Statistics window; and a scrollable timeline of selected
+  applications.
 - **Company logos** in the list, the edit window, the timeline and the
   company chart, looked up on the web without any account or API key.
 - **Plain CSV storage** in `data/applications.csv`, which you can open in any
@@ -35,8 +37,6 @@ file, so nothing leaves your machine.
   - macOS with Homebrew: `brew install python-tk@3.12`
   - Debian / Ubuntu: `sudo apt install python3-tk`
   - Fedora: `sudo dnf install python3-tkinter`
-- **Git LFS**, only if you want the bundled example data
-  (`data/applications.csv` is stored with LFS).
 
 Check that Python and Tkinter work:
 
@@ -55,8 +55,9 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs matplotlib (charts), click (command line),
-requests, beautifulsoup4 and lxml (parsing job postings).
+`requirements.txt` installs matplotlib (charts), Pillow (company logos),
+click (command line), requests, beautifulsoup4 and lxml (parsing job
+postings).
 
 ### Development setup (optional)
 
@@ -74,6 +75,13 @@ pre-commit run --all-files     # ruff lint + format, tests, file checks
 ```
 
 The hooks expect the virtual environment at `.venv/`.
+
+After changing how the app looks, retake the screenshots in this README
+(macOS only; the terminal needs the Screen Recording permission):
+
+```bash
+python docs/make_screenshots.py
+```
 
 ## Running the app
 
@@ -111,9 +119,8 @@ The main window shows your applications above a chart.
   Empty values always go last. Salaries sort by amount, and statuses in
   pipeline order.
 - **Edit** an application by double-clicking its row.
-- **Highlight** an application in the chart below by selecting its row:
-  the parts of the chart it belongs to stand out, outlined, and the rest
-  fades.
+- **Highlight** an application in the chart below by selecting its row (see
+  below).
 - **Select several rows** with ⌘-click (Ctrl-click on Windows/Linux) or
   Shift-click, then press **Timeline** to compare them.
 - **Refresh** reloads the CSV, handy if you edited it in another program.
@@ -124,10 +131,19 @@ off where each one ended: ghosted, rejected right away, rejected after a
 given stage, still in progress, and finally the offers.
 
 **Progress by application** stacks every application on each stage it
-reached, so you can see the funnel narrow. The hatching shows the interview
-format: solid for on-site, hatched for virtual, dotted for phone.
+reached, so you can see the funnel narrow. Interview rounds show their
+format: solid for on-site, a light tint with a dashed outline for virtual,
+dotted for phone. Each application keeps its own color; once the colors run
+out they repeat with a hatching. Up to 15 applications get a legend; with
+more, hover a segment to see whose it is.
 
 ![Progress by application chart](docs/screenshots/main-progress.png)
+
+**Selecting a single row** highlights that application in either chart: the
+parts it belongs to stay bright and outlined, everything else fades, and a
+line under the title says where it ended up.
+
+![A selected application highlighted in the waterfall](docs/screenshots/main-highlight.png)
 
 In the Status column, interview rounds show their tags as letters, e.g.
 `Interview - 2nd Round · V T` for a virtual technical round (format:
@@ -148,7 +164,8 @@ Click **+ Add Application**.
 2. Fill in the **job title** (required), **company**, **contact email(s)**
    and **salary**. The company field suggests companies you have applied to
    before. Separate several email addresses with commas.
-3. **Date applied** defaults to today. Dates are written as `DD.MM.YYYY`.
+3. **Date applied** defaults to today. Dates are written as `DD.MM.YYYY`;
+   the calendar button next to the field lets you pick one instead.
 4. Press **Save Application**.
 
 **Tip:** in any date or text field, typing `#dd` replaces it with today's
@@ -160,25 +177,29 @@ Double-click a row to open the edit dialog.
 
 ![Edit Application dialog](docs/screenshots/edit-application.png)
 
-- Set **Current status** to where the application stands now.
-- Enter the date for every **stage** you reached, using the **Today** button
-  or `#dd`, and leave stages you did not reach blank. These dates drive the
-  charts and the timeline.
+- Enter the date for every **stage** you reached, using the **Today**
+  button, the calendar button or `#dd`, and leave stages you did not reach
+  blank. These dates drive the charts and the timeline.
+- **Current status** follows from the dates: it is the stage reached last,
+  and updates as you type. To close an application nobody answered, enter a
+  **Ghosted** date.
 - For each **interview round**, choose its **Format** (defaults to Virtual)
   and, optionally, its **Focus**.
 - The **Coding Challenge** is optional and can happen between any two
   rounds. The dialog shows where it falls, e.g. "→ after 2nd Round", based
   on the dates.
-- **Notes** is a free-text field for anything else, such as offer details or
-  deadlines.
-- **Last update** is set automatically on every save.
+- **Notes** is a multi-line free-text field for anything else, such as offer
+  details or deadlines.
+- **Last update** is the date of the latest stage, so it shows when
+  something last happened.
+- The company's **logo** sits at the top right.
 - **Delete** removes the application permanently (after asking).
 
 ### Statistics
 
-Press **Statistics** to open the statistics window. Use the **Applied**
-filter to limit it to applications sent in the last 30 or 90 days or the last
-12 months.
+Press **Statistics** to open the statistics window and pick a **View**. Use
+the **Applied** filter to limit a view to applications sent in the last 30 or
+90 days or the last 12 months (the calendar has its own month switcher).
 
 **Success rate** shows what share of applications reached a **Target**:
 an offer, an assessment or interview, any reply at all, a rejection, or being
@@ -203,12 +224,16 @@ the applications still waiting, against the average reply time of each kind
 Applications waiting past the 30-day ghosted limit sit at the right edge;
 hover them for the actual number of days.
 
+![Statistics: reply times](docs/screenshots/statistics-reply-times.png)
+
 **Calendar** shows one month at a time as a grid of days, shaded by how much
 happened on each, like a contribution graph. **Count** switches between
 applications sent and all stage dates (interviews, rejections, offers, …).
 Switch months with ◀ / ▶ or the arrow keys; **This month** jumps back to
 today. The shades are relative to your busiest day overall, so months
 compare with each other. Hover a day to see what happened.
+
+![Statistics: activity calendar](docs/screenshots/statistics-calendar.png)
 
 #### How outcomes are counted
 
@@ -221,25 +246,28 @@ and current status:
 | **In progress**            | Got past the application stage and was not rejected.      |
 | **Rejected after a stage** | Rejected after an assessment or interview.                |
 | **Rejected right away**    | Rejected without getting past the application.            |
-| **Ghosted**                | No reply at all 30 or more days after applying.           |
+| **Ghosted**                | Marked as ghosted, or no reply 30+ days after applying.   |
 | **Awaiting reply**         | No reply yet, but applied less than 30 days ago.          |
 
 ### Timeline
 
 Select one or more applications in the list and press **Timeline** to see
 how each one progressed: every stage reached, the days between stages and the
-total duration.
+total duration. Open applications run on to today's red line as a dashed
+tail; ghosted ones are marked in purple.
 
 ![Timeline of selected applications](docs/screenshots/timeline.png)
 
-Long timelines scroll; the dates stay in view at the top. Ghosted
-applications are marked in purple.
+Long timelines scroll (scrollbar, mouse wheel or trackpad), with the dates
+staying in view at the top. Hover a stage or the stretch between two for the
+dates.
 
 ### Company logos
 
 Each company's logo is shown in the list, the edit window, the timeline and
-the **By company** chart. The app looks them up in the background when it starts, so it is
-usable straight away and the logos appear within a second or two. Logos are
+the **By company** chart. The app looks them up in the background when it
+starts, so it is usable straight away and the logos appear within a second or
+two. Logos are
 only kept while the app runs; nothing is stored on disk.
 
 To find a company's logo, the app needs its website. It takes it from
@@ -253,7 +281,8 @@ To find a company's logo, the app needs its website. It takes it from
 
 The logo itself comes from [Hunter's free logo service](https://hunter.io/api/logo).
 Neither needs an account or an API key. Companies without a logo get a tile
-with their initials.
+with their initials, as the made-up companies in the example data (and the
+screenshots) do.
 
 This sends company names and websites to Clearbit and Hunter. Start the app
 with `--no-logos` if you'd rather not.
@@ -287,4 +316,5 @@ job_tracker/
 tests/                 pytest suite
 data/applications.csv  example data, used when no CSV_PATH is given
 docs/screenshots/      images used in this README
+docs/make_screenshots.py  retakes them (macOS)
 ```
