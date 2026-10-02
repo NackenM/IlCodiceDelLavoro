@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from job_tracker.dates import month_grid, shift_month
 from job_tracker.gui.application_list import (
     COLUMNS_BY_KEY,
     sort_applications,
@@ -11,7 +12,7 @@ from job_tracker.gui.application_list import (
     status_text,
 )
 from job_tracker.gui.company_field import companies_containing, completion_for
-from job_tracker.gui.date_picker import initial_date, month_grid, shift_month
+from job_tracker.gui.date_picker import initial_date
 from job_tracker.stages import Stage
 
 from .factories import TODAY, make_application

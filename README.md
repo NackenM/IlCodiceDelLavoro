@@ -203,6 +203,13 @@ the applications still waiting, against the average reply time of each kind
 Applications waiting past the 30-day ghosted limit sit at the right edge;
 hover them for the actual number of days.
 
+**Calendar** shows one month at a time as a grid of days, shaded by how much
+happened on each, like a contribution graph. **Count** switches between
+applications sent and all stage dates (interviews, rejections, offers, …).
+Switch months with ◀ / ▶ or the arrow keys; **This month** jumps back to
+today. The shades are relative to your busiest day overall, so months
+compare with each other. Hover a day to see what happened.
+
 #### How outcomes are counted
 
 Every application falls into exactly one outcome, based on its stage dates
@@ -271,6 +278,7 @@ job_tracker/
   stages.py            stages, round formats and focuses
   outcomes.py          sorting applications into outcomes
   reply_times.py       time from applying to the first reply
+  activity.py          activity per day, for the calendar
   logos.py             finding company logos on the web
   repository.py        loading and saving the CSV
   scraper.py           parsing job postings from a URL

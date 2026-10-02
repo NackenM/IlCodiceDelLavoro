@@ -6,10 +6,12 @@ unambiguously; the conversion to and from that lives in the repository.
 
 from __future__ import annotations
 
+import calendar
 from datetime import date, datetime
 
 DISPLAY_FORMAT = "%d.%m.%Y"
 DISPLAY_HINT = "DD.MM.YYYY"
+WEEKDAY_HEADINGS = ("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
 
 
 def format_display_date(value: date | None) -> str:
@@ -22,6 +24,22 @@ def parse_display_date(text: str) -> date | None:
     if not text:
         return None
     return datetime.strptime(text, DISPLAY_FORMAT).date()
+
+
+def month_grid(year: int, month: int) -> list[list[date]]:
+    """The weeks (Monday first) covering the month, padded with days of
+    the neighbouring months so every week is complete."""
+    return calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)
+
+
+def month_title(year: int, month: int) -> str:
+    """ "September 2026"."""
+    return f"{calendar.month_name[month]} {year}"
+
+
+def shift_month(year: int, month: int, months: int) -> tuple[int, int]:
+    index = year * 12 + (month - 1) + months
+    return index // 12, index % 12 + 1
 
 
 def is_valid_display_date(text: str) -> bool:

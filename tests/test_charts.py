@@ -6,6 +6,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.dates import date2num
 
 from job_tracker import charts
+from job_tracker.activity import ActivityKind
 from job_tracker.charts.progress import LEGEND_MAX_APPLICATIONS, shown_stages
 from job_tracker.charts.statistics import company_share_slices
 from job_tracker.charts.style import bullet_list
@@ -286,3 +287,12 @@ def test_a_long_highlighted_title_leaves_the_plot_in_place(build):
         plain_axes.get_position().x1
     )
     assert "…" in _subtitle(highlighted)
+
+
+@pytest.mark.parametrize("kind", list(ActivityKind))
+@pytest.mark.parametrize("month", [(2026, 7), (2026, 9), (2025, 2)])
+def test_activity_calendar_renders(kind, month):
+    figure = charts.build_activity_calendar_figure(
+        SAMPLE, *month, kind, today=TODAY
+    )
+    render(figure)

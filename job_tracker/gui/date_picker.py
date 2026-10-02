@@ -2,26 +2,20 @@
 
 from __future__ import annotations
 
-import calendar
 import tkinter as tk
 from datetime import date
 from tkinter import ttk
 
-from ..dates import format_display_date, parse_display_date
+from ..dates import (
+    WEEKDAY_HEADINGS,
+    format_display_date,
+    month_grid,
+    month_title,
+    parse_display_date,
+    shift_month,
+)
 
-WEEKDAY_HEADINGS = ("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
 OTHER_MONTH_COLOR = "#9a9893"
-
-
-def month_grid(year: int, month: int) -> list[list[date]]:
-    """The weeks (Monday first) covering the month, padded with days of
-    the neighbouring months so every week is complete."""
-    return calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)
-
-
-def shift_month(year: int, month: int, months: int) -> tuple[int, int]:
-    index = year * 12 + (month - 1) + months
-    return index // 12, index % 12 + 1
 
 
 def initial_date(text: str, today: date) -> date:
@@ -93,9 +87,7 @@ class CalendarPopup(tk.Toplevel):
         self._draw()
 
     def _draw(self) -> None:
-        self._heading.configure(
-            text=f"{calendar.month_name[self._month]} {self._year}"
-        )
+        self._heading.configure(text=month_title(self._year, self._month))
         for child in self._days.winfo_children():
             child.destroy()
         for column, heading in enumerate(WEEKDAY_HEADINGS):
